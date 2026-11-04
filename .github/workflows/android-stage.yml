@@ -17,7 +17,7 @@ permissions:
 
 concurrency:
   group: customer-stage-debug-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   stage-debug:
