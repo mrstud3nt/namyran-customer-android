@@ -24,6 +24,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -279,7 +280,10 @@ class MainActivity : ComponentActivity() {
     }
     vm.images.forEachIndexed { index,meta ->
         Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
-            Icon(Icons.Outlined.Image,null)
+            val bitmap by produceState<android.graphics.Bitmap?>(null,meta.optString("id")){
+                value=kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO){runCatching{vm.imagePreview(meta)}.getOrNull()}
+            }
+            if(bitmap!=null)androidx.compose.foundation.Image(bitmap!!.asImageBitmap(),"پیش‌نمایش تصویر ${index+1}",Modifier.size(64.dp)) else Icon(Icons.Outlined.Image,null)
             Text("تصویر ${index+1} · ${meta.optLong("size")/1024} کیلوبایت",Modifier.weight(1f).padding(8.dp))
             if(!review)IconButton(onClick={vm.removeImage(meta.getString("id"))},enabled=!vm.busy){Icon(Icons.Outlined.DeleteOutline,"حذف تصویر ${index+1}")}
         }

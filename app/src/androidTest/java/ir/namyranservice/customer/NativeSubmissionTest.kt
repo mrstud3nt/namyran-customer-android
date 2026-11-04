@@ -25,6 +25,17 @@ class NativeSubmissionTest {
   val phone=args.getString("authorized_phone");val token=args.getString("authorized_token")
   Assume.assumeTrue("Requires locally supplied authorized Stage session",!phone.isNullOrBlank()&&!token.isNullOrBlank())
   val context=instrumentation.targetContext
+  // Optional explicit CA for a local intercepted test network; never packaged in the app.
+  // Hostname verification stays at the Android default. Stock CI smoke uses platform trust.
+  val originalTls=javax.net.ssl.HttpsURLConnection.getDefaultSSLSocketFactory()
+  val testCa=File(context.filesDir,"native-test-ca.pem")
+  if(testCa.exists()){
+   val ks=java.security.KeyStore.getInstance(java.security.KeyStore.getDefaultType()).apply{load(null)}
+   testCa.inputStream().use{input->java.security.cert.CertificateFactory.getInstance("X.509").generateCertificates(input).forEachIndexed{i,cert->ks.setCertificateEntry("local-test-$i",cert)}}
+   val tm=javax.net.ssl.TrustManagerFactory.getInstance(javax.net.ssl.TrustManagerFactory.getDefaultAlgorithm()).apply{init(ks)}
+   val ssl=javax.net.ssl.SSLContext.getInstance("TLS").apply{init(null,tm.trustManagers,null)}
+   javax.net.ssl.HttpsURLConnection.setDefaultSSLSocketFactory(ssl.socketFactory)
+  }
   SecureStore(context).write("session",JSONObject().put("mobile",phone).put("token",token).put("expires",System.currentTimeMillis()+3600000))
   val source=File(context.cacheDir,"native-stage-test.png");val bitmap=Bitmap.createBitmap(16,16,Bitmap.Config.ARGB_8888)
   bitmap.eraseColor(android.graphics.Color.BLUE);source.outputStream().use{bitmap.compress(Bitmap.CompressFormat.PNG,100,it)};bitmap.recycle()
@@ -61,6 +72,6 @@ class NativeSubmissionTest {
    assertTrue(vm.requests.any{it.optString("tracking_code")==vm.receipt!!.getString("tracking_code")})
    // Persist sanitized evidence privately; the runner never prints phone, token, OTP or tracking code.
    File(context.filesDir,"native-submission-evidence.json").writeText(JSONObject().put("success",true).put("request_id",vm.receipt!!.getInt("request_id")).put("image_count",1).put("account_readback",true).put("picker_callback",true).put("system_picker_ui_tested",false).put("otp_ui_tested",false).toString())
-  }finally{scenario.close();source.delete()}
+  }finally{scenario.close();source.delete();testCa.delete();javax.net.ssl.HttpsURLConnection.setDefaultSSLSocketFactory(originalTls)}
  }
 }

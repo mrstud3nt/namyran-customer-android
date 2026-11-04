@@ -198,6 +198,7 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
             return@launchTask {images=images+imported;saveDraft()}
         }
     }
+    fun imagePreview(meta:JSONObject)=imageStore.preview(meta)
     fun removeImage(id:String) {
         if(busy||pending!=null)return
         images.find{it.optString("id")==id}?.let(imageStore::remove)
@@ -237,11 +238,12 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
             result.put("local_image_count",selected.size).put("local_images_confirmed",filesConfirmed)
             if(!result.optBoolean("success")||result.optInt("request_id")<=0||result.optString("tracking_code").isBlank())throw CoreFailure("submission_invalid","پاسخ ثبت درخواست معتبر نیست. همان درخواست را دوباره بررسی کنید.")
             // Persist the receipt before the read-back, so a list/network failure never loses the tracking code.
-            store.write("receipt",result);store.write("pending",null)
+            if(!filesConfirmed)result.put("local_unconfirmed_images",JSONArray(selected))
+            store.write("receipt",result);store.write("pending",null);store.write("draft",null)
             if(filesConfirmed)selected.forEach(imageStore::remove)
             var rows:List<JSONObject>?=null
             try {rows=api.post("my-requests",auth()).array("requests").objects()}catch(_:Exception){}
-            return@launchTask {receipt=result;pending=null;if(filesConfirmed)images=emptyList();receiptInAccount=rows?.any{it.optString("tracking_code")==result.optString("tracking_code")}==true
+            return@launchTask {receipt=result;pending=null;images=emptyList();receiptInAccount=rows?.any{it.optString("tracking_code")==result.optString("tracking_code")}==true
                 if(rows!=null){requests=rows!!;requestsLoaded=true}
                 creating=false;tab="receipt";item=JSONObject();items=emptyList();terms=false;store.write("draft",null)}
         }

@@ -50,6 +50,12 @@ class AttachmentStore(private val context: Context) {
         check(bytes.size==meta.getInt("size")&&hash(bytes)==meta.getString("sha256"))
         return bytes
     }
+    fun preview(meta:JSONObject):android.graphics.Bitmap? {
+        val bytes=read(meta);val bounds=BitmapFactory.Options().apply{inJustDecodeBounds=true}
+        BitmapFactory.decodeByteArray(bytes,0,bytes.size,bounds)
+        var sample=1;while(bounds.outWidth/sample>512||bounds.outHeight/sample>512)sample*=2
+        return BitmapFactory.decodeByteArray(bytes,0,bytes.size,BitmapFactory.Options().apply{inSampleSize=sample})
+    }
     fun remove(meta:JSONObject){file(meta.getString("id")).delete()}
     fun clear(){directory.listFiles()?.forEach { it.delete() }}
     private fun hash(bytes:ByteArray)=MessageDigest.getInstance("SHA-256").digest(bytes).joinToString(""){"%02x".format(it)}
