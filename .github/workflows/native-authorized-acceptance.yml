@@ -1,5 +1,5 @@
 name: Authorized Native Stage acceptance
-# One-off authorized mutation: only workflow run 4 may receive a real session.
+# One-off authorized mutation: only workflow run 8 may receive a real session.
 on:
   pull_request:
     branches: [main]
@@ -9,7 +9,7 @@ permissions:
   actions: read
 jobs:
   native-acceptance:
-    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'codex/stage-core-integration' && github.run_number == 4
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'codex/stage-core-integration' && github.run_number == 8
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -29,11 +29,11 @@ jobs:
           path: /tmp/native-acceptance.pub
           retention-days: 1
           overwrite: true
-      - name: Download exact tested APK pair from build 21
+      - name: Download exact tested APK pair from build 29
         uses: actions/download-artifact@v4
         with:
-          name: Namyran-Customer-Stage-v0.3.2-debug
-          run-id: 41926200176
+          name: Namyran-Customer-Stage-v0.3.3-debug
+          run-id: 41930745223
           github-token: ${{ github.token }}
           path: acceptance-apk
       - name: Await encrypted authorized Stage session
