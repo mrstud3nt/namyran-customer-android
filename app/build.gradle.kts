@@ -9,8 +9,8 @@ android {
         applicationId = "ir.namyranservice.customer.stage"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.3.0-stage"
+        versionCode = 5
+        versionName = "0.3.1-stage"
         buildConfigField("String", "API_BASE_URL", "\"https://stage.namyranservice.ir/wp-json/\"")
         buildConfigField("boolean", "BACKEND_ENABLED", "true")
     }

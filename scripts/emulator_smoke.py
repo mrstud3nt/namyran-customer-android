@@ -36,7 +36,7 @@ try:
     assert any(n.get('text')=='شماره موبایل' for n in root.iter('node')),'Login lost on rotation'
     print('PASS: launch, real Stage metadata, light/dark, native login navigation, rotation')
 finally:
-    logs=adb('logcat','-d','-s','AndroidRuntime:E').decode(errors='replace')
+    logs=adb('logcat','-d','-s','AndroidRuntime:E','NamyranStage:W').decode(errors='replace')
     (out/'android-runtime.txt').write_text(logs)
     screenshot('last-screen')
     assert not ('FATAL EXCEPTION' in logs and pkg in logs),'Application crashed'

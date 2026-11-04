@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModelProvider
 import ir.namyranservice.customer.data.*
+import ir.namyranservice.customer.domain.NativeRules
 import ir.namyranservice.customer.design.*
 import org.json.JSONArray
 import org.json.JSONObject
@@ -198,6 +199,7 @@ class MainActivity : ComponentActivity() {
             if(device!=null&&device.array("subtypes").length()>0)Picker("نوع دستگاه",device.array("subtypes").objects().map{it.optString("id") to it.optString("title")},item.optString("catalog_subtype_id"),!vm.busy){vm.changeItem("catalog_subtype_id",it)}
             val brands=config.array(if(mode=="install")"installBrands" else "brands").strings()
             Picker("برند",brands.map{it to it},item.optString("brand"),!vm.busy){vm.changeItem("brand",it)}
+            if(NativeRules.isCustomBrand(item.optString("brand")))Field("نام برند دستگاه",item.optString("custom_brand"),{vm.changeItem("custom_brand",it)},!vm.busy)
             Field("مدل دستگاه، در صورت اطلاع",vm.model,{vm.model=it;vm.saveDraft()},!vm.busy)
             if(vm.isTv()){
                 val tv=config.optJSONObject("tvInstall")?:JSONObject()
@@ -248,7 +250,7 @@ class MainActivity : ComponentActivity() {
         }
         3->{
             SectionTitle("خلاصه درخواست")
-            (vm.items+JSONObject(vm.item.toString()).put("device_model",vm.model)).forEach{d->Panel(listOf(d.optString("device"),d.optString("brand")).joinToString(" · "),listOf(config.array("services").objects().find{it.optString("id")==d.optString("service_type")}?.optString("title"),d.optString("device_model")).filterNotNull().filter{it.isNotBlank()}.joinToString("\n"))}
+            (vm.items+vm.currentItemForReview()).forEach{d->Panel(listOf(d.optString("device"),d.optString("brand")).joinToString(" · "),listOf(config.array("services").objects().find{it.optString("id")==d.optString("service_type")}?.optString("title"),d.optString("device_model")).filterNotNull().filter{it.isNotBlank()}.joinToString("\n"))}
             Panel(vm.name,vm.address)
             if(vm.description.isNotBlank())Panel("شرح درخواست",vm.description)
             Panel("زمان پیشنهادی",(vm.schedule?.optString("dateJalali")?:vm.date)+" · "+vm.slot)

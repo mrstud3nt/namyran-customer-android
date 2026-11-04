@@ -1,0 +1,41 @@
+{
+  "verified_at_utc": "2026-11-04T17:55:58.747591+00:00",
+  "site": "https://stage.namyranservice.ir",
+  "core_version": "2.0.0-alpha.5.81",
+  "revision": "b3147510fd72c0dfa399b86a2c690f117123662697c37185da86a8f06e535b33",
+  "services": 4,
+  "groups": 6,
+  "devices": 29,
+  "cities": 1,
+  "form_parity": {
+    "services": true,
+    "categories": true,
+    "brands": true,
+    "installBrands": true,
+    "tvInstall": true,
+    "visitSlots": true,
+    "dispatchLeadHours": true
+  },
+  "schedule_checks": [
+    {
+      "case": "tomorrow",
+      "status": 200,
+      "code": null,
+      "kind": "customer_preference"
+    },
+    {
+      "case": "past",
+      "status": 400,
+      "code": "customer_date_outside_range",
+      "kind": null
+    },
+    {
+      "case": "malformed",
+      "status": 400,
+      "code": "customer_date_invalid",
+      "kind": null
+    }
+  ],
+  "writes_performed": false,
+  "otp_or_submission_tested": false
+}

@@ -72,7 +72,9 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
         busy = true; error = ""; message = ""
         executor.execute {
             try { val apply = task(); main.post { apply(); busy=false } }
-            catch (e: Exception) { main.post {
+            catch (e: Exception) {
+                if(BuildConfig.DEBUG)android.util.Log.w("NamyranStage", "operation_failed:"+e.javaClass.simpleName+":"+(e.cause?.javaClass?.simpleName?:"none")+(if(e is CoreFailure)":"+e.code else ""))
+                main.post {
                 if(e is CoreFailure&&pending!=null&&NativeRules.rejectedBeforeInsert(e.code)){pending=null;store.write("pending",null);creating=true;step=0}
                 if (e is CoreFailure && e.code in setOf("nsc_customer_session_denied","nsc_session_expired","nsc_not_verified","nsc_my_requests_auth")) clearSession()
                 error = when(e) { is CoreFailure -> e.message ?: "خطای Core"; else -> "ارتباط با Stage کامل نشد؛ اتصال اینترنت را بررسی و دوباره تلاش کنید." }
@@ -134,11 +136,8 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
     }
     fun changeItem(key:String,value:String) {
         val next=JSONObject(item.toString())
-        when(key){
-            "service_type" -> { listOf("category","device","catalog_device_id","catalog_device_version","catalog_subtype_id","brand","installation_package","tv_size","tv_bracket","tv_wall","catalog_service_ids").forEach(next::remove); model="" }
-            "category" -> { listOf("device","catalog_device_id","catalog_device_version","catalog_subtype_id","catalog_service_ids").forEach(next::remove); model="" }
-            "device" -> {listOf("catalog_subtype_id","catalog_service_ids").forEach(next::remove);model=""}
-        }
+        NativeRules.invalidatedFields(key).forEach(next::remove)
+        if(key in setOf("service_type","category","device"))model=""
         next.put(key,value);item=next;saveDraft()
     }
     fun chooseDevice(device:JSONObject) {
@@ -151,6 +150,7 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
         if(listOf("service_type","category","device","brand").any{item.optString(it).isBlank()})return "خدمت، گروه، دستگاه و برند را انتخاب کنید."
         val brandOptions=config!!.array(if(item.optString("service_type")=="install")"installBrands" else "brands").strings()
         if(item.optString("brand") !in brandOptions)return "برند در Core تغییر کرده است؛ دوباره انتخاب کنید."
+        if(NativeRules.isCustomBrand(item.optString("brand"))&&item.optString("custom_brand").trim().length<2)return "نام برند دستگاه را وارد کنید."
         val d=device()?:return "دستگاه در کاتالوگ فعلی Core پیدا نشد؛ دوباره انتخاب کنید."
         if(d.array("subtypes").length()>0&&d.array("subtypes").objects().none{it.optString("id")==item.optString("catalog_subtype_id")})return "زیرنوع دستگاه را انتخاب کنید."
         if(isTv()){
@@ -162,7 +162,8 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
         return null
     }
     fun isTv()=item.optString("service_type")=="install"&&device()?.optString("icon")=="television"
-    private fun currentItem():JSONObject=JSONObject(item.toString()).put("device_model",model).put("service_location",if(item.optString("service_type")=="install")"onsite" else item.optString("service_location"))
+    fun currentItemForReview():JSONObject=currentItem()
+    private fun currentItem():JSONObject=JSONObject(item.toString()).apply { if(NativeRules.isCustomBrand(optString("brand")))put("brand",optString("custom_brand").trim());remove("custom_brand") }.put("device_model",model).put("service_location",if(item.optString("service_type")=="install")"onsite" else item.optString("service_location"))
     fun addItem() { val problem=checkItem();if(problem!=null){error=problem;return};if(items.size>=(config!!.getJSONObject("customerMobile").getInt("maxOrderItems")-1)){error="حداکثر ۲۰ دستگاه در هر درخواست مجاز است.";return};items=items+currentItem();item=JSONObject();model="";step=0;saveDraft() }
     fun removeItem(index:Int){items=items.filterIndexed{i,_->i!=index};saveDraft()}
     fun next() {
