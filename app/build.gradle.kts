@@ -4,13 +4,13 @@ plugins {
 }
 android {
     namespace = "ir.namyranservice.customer"
-    compileSdk = 37
+    compileSdk = 36
     defaultConfig {
         applicationId = "ir.namyranservice.customer.stage"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2.1-stage"
+        versionCode = 3
+        versionName = "0.2.2-stage"
         buildConfigField("String", "API_BASE_URL", "\"https://stage.namyranservice.ir/wp-json/\"")
         buildConfigField("boolean", "BACKEND_ENABLED", "false")
     }
