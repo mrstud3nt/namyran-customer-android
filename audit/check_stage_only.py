@@ -1,15 +1,19 @@
-"""Read-only local checks; these are NOT Android compile or endpoint tests."""
+"""Static host/build checks; these do not certify live Core behavior."""
 from pathlib import Path
-root = Path(__file__).resolve().parents[1]
-manifest = (root / "app/src/main/AndroidManifest.xml").read_text()
-build = (root / "app/build.gradle.kts").read_text()
-source = "\n".join(f.read_text() for f in (root / "app/src/main/java").rglob("*.kt"))
-assert 'android.permission.INTERNET' not in manifest, "INTERNET permission would allow network requests"
-assert 'https://stage.namyranservice.ir/wp-json/' in build, "Stage API URL missing"
-assert 'BACKEND_ENABLED", "false"' in build, "Backend flag must be false"
-assert 'ir.namyranservice.customer.stage' in build, "Wrong application ID"
-assert 'https://namyranservice.ir/' not in build + source, "Production URL found in runtime source"
-assert 'stage.namyranservice.ir' not in source, "UI should not access backend directly"
-assert 'RequestRules.check' in source, "Offline validation missing"
-assert 'در انتظار اتصال Stage' in source, "Unverified slot selection should be disabled"
-print("PASS: stage-only, no permission to network, offline wizard validation")
+import re
+root=Path(__file__).resolve().parents[1]
+build=(root/'app/build.gradle.kts').read_text()
+manifest=(root/'app/src/main/AndroidManifest.xml').read_text()
+source='\n'.join(p.read_text() for p in (root/'app/src/main/java').rglob('*.kt'))
+assert 'android.permission.INTERNET' in manifest
+assert 'usesCleartextTraffic="false"' in manifest
+assert 'https://stage.namyranservice.ir/wp-json/' in build
+assert 'ir.namyranservice.customer.stage' in build
+assert 'BACKEND_ENABLED", "true"' in build
+for host in re.findall(r'https?://([^/\s"\\]+)',build+source):
+    assert host=='stage.namyranservice.ir', f'Unexpected runtime host: {host}'
+assert 'instanceFollowRedirects = false' in source
+assert 'AndroidKeyStore' in source
+assert 'WebView' not in source
+assert not re.search(r'TrustAll|ALLOW_ALL_HOSTNAME_VERIFIER|setHostnameVerifier',source)
+print('PASS: Stage identity, HTTPS only, redirect rejection, native UI and encrypted session storage')

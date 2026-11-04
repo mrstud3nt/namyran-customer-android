@@ -14,6 +14,6 @@ assert 'id("com.android.application") version "9.4.0"' in g
 assert 'id("org.jetbrains.kotlin.plugin.compose") version "2.4.10"' in g
 assert 'compileSdk = 36' in b
 assert 'applicationId = "ir.namyranservice.customer.stage"' in b
-assert 'BACKEND_ENABLED", "false"' in b
+assert 'BACKEND_ENABLED", "true"' in b
 assert 'https://namyranservice.ir/' not in b
-print('PASS: Stage workflow includes unit tests, lint and reports; backend remains disabled')
+print('PASS: Stage workflow includes unit tests, lint and reports; Stage backend enabled')

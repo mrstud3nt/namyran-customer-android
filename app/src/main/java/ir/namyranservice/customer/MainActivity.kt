@@ -1,10 +1,18 @@
 package ir.namyranservice.customer
 
+import android.Manifest
+import android.app.DatePickerDialog
+import android.content.pm.PackageManager
+import android.location.LocationManager
 import android.os.Bundle
+import android.os.CancellationSignal
+import android.content.Context
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.*
+import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -18,234 +26,309 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import ir.namyranservice.customer.design.NamyranColors
-import ir.namyranservice.customer.design.NamyranTheme
-import ir.namyranservice.customer.domain.RequestDraft
-import ir.namyranservice.customer.domain.RequestRules
-import ir.namyranservice.customer.ui.GradientAction
-import ir.namyranservice.customer.ui.InfoPanel
+import androidx.lifecycle.ViewModelProvider
+import ir.namyranservice.customer.data.*
+import ir.namyranservice.customer.design.*
+import org.json.JSONArray
+import org.json.JSONObject
+import java.time.LocalDate
 
-private enum class RootTab(val label: String) {
-    HOME("خانه"), REQUESTS("درخواست‌ها"), CREATE("ثبت درخواست"), SUPPORT("پشتیبانی"), PROFILE("حساب کاربری")
-}
-
-/** Navigation remains offline: all customer data is deliberately absent until Stage auth passes. */
 class MainActivity : ComponentActivity() {
+    private lateinit var vm: CustomerViewModel
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { CustomerApplication() }
+        vm=ViewModelProvider(this)[CustomerViewModel::class.java]
+        setContent { CustomerApp(vm) }
     }
+    override fun onResume(){super.onResume();if(::vm.isInitialized)vm.refresh()}
 }
 
-@Composable
-private fun CustomerApplication() {
-    var dark by rememberSaveable { mutableStateOf(false) }
-    var tab by rememberSaveable { mutableStateOf(RootTab.HOME) }
-    var detail by rememberSaveable { mutableStateOf("") }
-    var step by rememberSaveable { mutableIntStateOf(-1) }
-    var draft by rememberSaveable(stateSaver = draftSaver) { mutableStateOf(RequestDraft()) }
-    var validationRequested by rememberSaveable { mutableStateOf(false) }
-    BackHandler(step >= 0 || detail.isNotBlank()) {
-        if (step > 0) { step--; validationRequested = false }
-        else if (step == 0) step = -1
-        else detail = ""
-    }
+@Composable private fun CustomerApp(vm:CustomerViewModel) {
+    BackHandler(vm.creating || vm.tab in listOf("tracking","receipt")) { if(!vm.busy){if(vm.creating&&vm.step>0)vm.step-- else {vm.creating=false;vm.tab="home"};vm.saveDraft()} }
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-        NamyranTheme(dark) {
-            Scaffold(
-                containerColor = MaterialTheme.colorScheme.background,
-                bottomBar = {
-                    if (step < 0 && detail.isBlank()) NavigationBar {
-                        RootTab.entries.forEach { dest ->
-                            NavigationBarItem(
-                                selected = tab == dest,
-                                onClick = {
-                                    if (dest == RootTab.CREATE) {
-                                        step = 0
-                                        validationRequested = false
-                                    } else { tab = dest; detail = "" }
-                                },
-                                icon = { Icon(when (dest) {
-                                    RootTab.HOME -> Icons.Outlined.Home
-                                    RootTab.REQUESTS -> Icons.Outlined.List
-                                    RootTab.CREATE -> Icons.Outlined.AddCircleOutline
-                                    RootTab.SUPPORT -> Icons.Outlined.SupportAgent
-                                    RootTab.PROFILE -> Icons.Outlined.PersonOutline
-                                }, contentDescription = null) },
-                                label = { Text(dest.label, fontSize = 10.sp) }
-                            )
+        NamyranTheme(vm.dark) {
+            Scaffold(containerColor=MaterialTheme.colorScheme.background,bottomBar={
+                if(!vm.creating)NavigationBar {
+                    listOf(Triple("home","خانه",Icons.Outlined.Home),Triple("requests","درخواست‌ها",Icons.Outlined.ReceiptLong),Triple("profile","حساب من",Icons.Outlined.PersonOutline)).forEach{(id,title,icon)->
+                        NavigationBarItem(selected=vm.tab==id,onClick={if(!vm.busy){vm.tab=id;if(id=="requests")vm.loadRequests()}},icon={Icon(icon,null)},label={Text(title)})
+                    }
+                }
+            }){padding->
+                Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(horizontal=20.dp,vertical=16.dp),verticalArrangement=Arrangement.spacedBy(16.dp)){
+                    Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween){
+                        Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){
+                            Surface(shape=RoundedCornerShape(16.dp),color=NamyranColors.blue){Icon(Icons.Outlined.Handyman,null,Modifier.padding(12.dp),tint=Color.White)}
+                            Column{Text("نامیران سرویس",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold);Text("محیط آزمایش · Stage",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
                         }
+                        IconButton(onClick={vm.dark=!vm.dark}){Icon(if(vm.dark)Icons.Outlined.LightMode else Icons.Outlined.DarkMode,"تغییر حالت نمایش")}
                     }
-                }
-            ) { padding ->
-                Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-                    TopHeader(dark, onThemeToggle = { dark = !dark })
-                    if (step >= 0) {
-                        RequestSteps(step, draft, validationRequested, onDraftChange = { draft = it },
-                            onBack = { if (step > 0) step-- else step = -1; validationRequested = false },
-                            onContinue = {
-                                validationRequested = true
-                                if (RequestRules.check(step, draft).isEmpty() && step < 3) {
-                                    step++; validationRequested = false
-                                }
-                            }, onClose = { step = -1 })
-                    } else if (detail.isNotBlank()) {
-                        TextButton(onClick = { detail = "" }) { Text("بازگشت به حساب کاربری") }
-                        DetailPage(detail)
-                    } else when (tab) {
-                        RootTab.HOME -> HomePage(onStart = { step = 0 }, onNavigate = { tab = it })
-                        RootTab.REQUESTS -> RequestsPage()
-                        RootTab.CREATE -> Unit
-                        RootTab.SUPPORT -> SupportPage()
-                        RootTab.PROFILE -> ProfilePage(onOpen = { detail = it })
+                    if(vm.busy)LinearProgressIndicator(Modifier.fillMaxWidth())
+                    if(vm.error.isNotBlank())Surface(color=MaterialTheme.colorScheme.errorContainer,shape=RoundedCornerShape(16.dp)){
+                        Column(Modifier.padding(16.dp)){Text(vm.error,color=MaterialTheme.colorScheme.onErrorContainer);TextButton(onClick=vm::dismissError){Text("بستن پیام")}}
                     }
-                    Spacer(Modifier.height(12.dp))
+                    if(vm.message.isNotBlank())Text(vm.message,color=MaterialTheme.colorScheme.primary)
+                    if(vm.pending!=null){
+                        Panel("ثبت قبلی نیاز به بررسی دارد","برای جلوگیری از ثبت تکراری، همان درخواست با همان شناسه دوباره بررسی می‌شود.")
+                        Action("بررسی نتیجه ثبت قبلی",!vm.busy&&vm.loggedIn){vm.retryPending()}
+                    }
+                    if(vm.config==null){
+                        Panel("دریافت اطلاعات خدمات","فهرست خدمات باید از Core محیط آزمایش دریافت شود.")
+                        Action("تلاش دوباره",!vm.busy){vm.refresh()}
+                    }else if(vm.creating&&vm.pending==null)RequestFlow(vm)
+                    else when(vm.tab){
+                        "home"->Home(vm)
+                        "requests"->Requests(vm)
+                        "profile"->Profile(vm)
+                        "receipt"->Receipt(vm)
+                        "tracking"->Tracking(vm)
+                    }
+                    Spacer(Modifier.height(16.dp))
                 }
             }
         }
     }
 }
 
-private val draftSaver = androidx.compose.runtime.saveable.listSaver<RequestDraft, Any>(
-    save = { listOf(it.service, it.appliance, it.brand, it.model, it.modelUnknown, it.description, it.province, it.city, it.address, it.termsAccepted) },
-    restore = { RequestDraft(it[0] as String, it[1] as String, it[2] as String, it[3] as String, it[4] as Boolean, it[5] as String, it[6] as String, it[7] as String, it[8] as String, it[9] as Boolean) }
-)
+@Composable private fun Home(vm:CustomerViewModel){
+    Column(Modifier.fillMaxWidth().background(Brush.linearGradient(listOf(NamyranColors.blue,NamyranColors.cyan)),RoundedCornerShape(28.dp)).padding(24.dp),verticalArrangement=Arrangement.spacedBy(14.dp)){
+        Text(if(vm.loggedIn)"سلام ${vm.name.takeIf{it.isNotBlank()}?:"همراه نامیران"}" else "خدمات مطمئن، خیال آسوده",color=Color.White,fontWeight=FontWeight.Bold,fontSize=24.sp)
+        Text("نصب، تعمیر و نگهداری لوازم خانگی",color=Color.White)
+        Button(onClick=vm::startRequest,enabled=!vm.busy&&vm.pending==null,modifier=Modifier.fillMaxWidth().heightIn(min=54.dp),colors=ButtonDefaults.buttonColors(containerColor=Color.White,contentColor=NamyranColors.blue)){Text("ثبت درخواست جدید")}
+    }
+    if(vm.loggedIn){
+        val active=vm.requests.filter{it.optString("status") !in listOf("completed","cancelled")}
+        SectionTitle("درخواست‌های فعال",active.size.toString())
+        if(vm.requestsLoaded&&active.isEmpty())Panel("درخواست فعالی ندارید","برای شروع، خدمت و دستگاه موردنظر را انتخاب کنید.")
+        active.take(2).forEach{RequestCard(it,vm)}
+    }else Panel("همه خدمات در حساب شما","برای ثبت و پیگیری درخواست‌ها با شماره موبایل وارد شوید.")
+    SectionTitle("خدمات ما")
+    val services=vm.config!!.array("services").objects()
+    services.chunked(2).forEach{row->Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(12.dp)){
+        row.forEach{s->Card(onClick={vm.startRequest();if(vm.loggedIn)vm.changeItem("service_type",s.getString("id"))},modifier=Modifier.weight(1f),shape=RoundedCornerShape(22.dp)){
+            Column(Modifier.padding(18.dp).heightIn(min=80.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
+                Icon(when(s.optString("icon")){"install"->Icons.Outlined.Handyman;"warranty"->Icons.Outlined.VerifiedUser;"periodic"->Icons.Outlined.Update;else->Icons.Outlined.Build},null,tint=MaterialTheme.colorScheme.primary)
+                Text(s.optString("title"),fontWeight=FontWeight.Bold)
+            }
+        }};if(row.size==1)Spacer(Modifier.weight(1f))
+    }}
+    TextButton(onClick={vm.refresh()},enabled=!vm.busy){Icon(Icons.Outlined.Refresh,null);Spacer(Modifier.width(6.dp));Text("به‌روزرسانی اطلاعات خدمات")}
+}
 
-@Composable
-private fun TopHeader(dark: Boolean, onThemeToggle: () -> Unit) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-        Column {
-            Text("نامیران سرویس", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Text("نسخه آزمایشی آفلاین · Stage", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+@Composable private fun Requests(vm:CustomerViewModel){
+    SectionTitle("درخواست‌های من",vm.requests.size.toString())
+    if(!vm.loggedIn){Panel("ابتدا وارد حساب شوید","فقط درخواست‌های متعلق به شماره تأییدشده شما نمایش داده می‌شوند.");Action("ورود به حساب",!vm.busy){vm.tab="profile"};return}
+    OutlinedButton(onClick=vm::loadRequests,enabled=!vm.busy,modifier=Modifier.fillMaxWidth()){Icon(Icons.Outlined.Refresh,null);Text("به‌روزرسانی وضعیت")}
+    if(!vm.requestsLoaded)Panel("فهرست هنوز دریافت نشده است","برای دریافت اطلاعات واقعی حساب، وضعیت را به‌روزرسانی کنید.")
+    else if(vm.requests.isEmpty())Panel("هنوز درخواستی ندارید","در این حساب درخواستی ثبت نشده است.")
+    vm.requests.forEach{RequestCard(it,vm)}
+}
+
+@Composable private fun RequestCard(row:JSONObject,vm:CustomerViewModel){
+    Card(onClick={if(!vm.busy)vm.track(row.optString("tracking_code"))},modifier=Modifier.fillMaxWidth(),shape=RoundedCornerShape(22.dp)){
+        Column(Modifier.padding(18.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
+            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text(row.optString("service_label"),fontWeight=FontWeight.Bold);Text(row.optString("status_label"),color=MaterialTheme.colorScheme.primary,style=MaterialTheme.typography.labelMedium)}
+            Text(listOf(row.optString("device"),row.optString("brand")).filter{it.isNotBlank()}.joinToString(" · "))
+            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text("پیگیری ${row.optString("tracking_code")}",style=MaterialTheme.typography.labelMedium);Text(row.optString("visit_date_jalali"),style=MaterialTheme.typography.labelMedium)}
+            if(row.optBoolean("needs_customer_action"))Text("این درخواست نیاز به اقدام شما دارد.",color=MaterialTheme.colorScheme.error)
         }
-        IconButton(onClick = onThemeToggle) { Icon(if (dark) Icons.Outlined.LightMode else Icons.Outlined.DarkMode, "تغییر حالت نمایش") }
     }
 }
 
-@Composable
-private fun HomePage(onStart: () -> Unit, onNavigate: (RootTab) -> Unit) {
-    Column(Modifier.fillMaxWidth().background(Brush.horizontalGradient(listOf(NamyranColors.blue, NamyranColors.cyan)), RoundedCornerShape(28.dp)).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("نصب اصولی، سرمایش واقعی", fontSize = 22.sp, color = Color.White, fontWeight = FontWeight.Bold)
-        Text("خدمات نصب، سرویس و تعمیر لوازم خانگی", color = Color.White)
-        Button(onClick = onStart, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp), colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = NamyranColors.blue)) { Text("ثبت درخواست جدید") }
+@Composable private fun Profile(vm:CustomerViewModel){
+    SectionTitle("حساب من")
+    var phone by rememberSaveable{mutableStateOf(vm.mobile)}
+    var code by rememberSaveable{mutableStateOf("")}
+    var now by remember{mutableLongStateOf(System.currentTimeMillis())}
+    LaunchedEffect(vm.resendAt){while(System.currentTimeMillis()<vm.resendAt){now=System.currentTimeMillis();kotlinx.coroutines.delay(1000)};now=System.currentTimeMillis()}
+    if(vm.loggedIn){
+        Panel("شماره تأییدشده",vm.mobile)
+        Action("مشاهده درخواست‌های من",!vm.busy,vm::loadRequests)
+        OutlinedButton(onClick=vm::loadAddresses,enabled=!vm.busy,modifier=Modifier.fillMaxWidth()){Text("دریافت نشانی‌های ذخیره‌شده")}
+        vm.addresses.forEach{row->val a=try{JSONObject(row.optString("data_json"))}catch(_:Exception){JSONObject()};Panel(row.optString("label"),a.optString("address"))}
+        OutlinedButton(onClick=vm::logout,enabled=!vm.busy,modifier=Modifier.fillMaxWidth()){Text("خروج از حساب")}
+    }else{
+        Panel("ورود با شماره موبایل","کد ورود به شماره شما پیامک می‌شود.")
+        Field("شماره موبایل",phone,{phone=it},!vm.busy&&!vm.otpSent,KeyboardType.Phone)
+        if(vm.otpSent){
+            Text("کد ارسال‌شده به ${vm.mobile} را وارد کنید.")
+            Field("کد چهاررقمی",code,{code=normalizedDigits(it).filter(Char::isDigit).take(4)},!vm.busy,KeyboardType.NumberPassword)
+            Action("تأیید و ورود",!vm.busy&&code.length==4){vm.verifyOtp(code)}
+        }
+        val remaining=((vm.resendAt-now+999)/1000).coerceAtLeast(0)
+        OutlinedButton(onClick={vm.sendOtp(phone)},enabled=!vm.busy&&remaining==0L,modifier=Modifier.fillMaxWidth().heightIn(min=54.dp)){
+            Text(if(remaining>0)"ارسال دوباره در $remaining ثانیه" else if(vm.otpSent)"ارسال دوباره کد" else "دریافت کد ورود")
+        }
     }
-    Text("دسته‌های خدمات", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-    listOf("کولر گازی", "یخچال و فریزر", "ماشین لباسشویی", "ماشین ظرفشویی", "تلویزیون", "سایر خدمات").chunked(2).forEach { pair ->
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            pair.forEach { name ->
-                Card(onClick = onStart, modifier = Modifier.weight(1f).height(116.dp), shape = RoundedCornerShape(22.dp)) {
-                    Column(Modifier.fillMaxSize().padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                        Icon(if (name == "کولر گازی") Icons.Outlined.AcUnit else if (name == "تلویزیون") Icons.Outlined.Tv else Icons.Outlined.Build, null, modifier = Modifier.size(30.dp), tint = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.height(8.dp))
-                        Text(name, textAlign = TextAlign.Center, fontSize = 12.sp)
-                    }
+}
+
+@Composable private fun RequestFlow(vm:CustomerViewModel){
+    val config=vm.config!!;val item=vm.item;val context=LocalContext.current
+    val headings=listOf("انتخاب خدمت و دستگاه","نشانی و شرح درخواست","زمان پیشنهادی مراجعه","بازبینی و ثبت")
+    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically){Text("درخواست جدید",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold);TextButton(onClick={vm.saveDraft();vm.creating=false},enabled=!vm.busy){Text("ذخیره و بستن")}}
+    Text("مرحله ${vm.step+1} از ۴ · ${headings[vm.step]}",fontWeight=FontWeight.Bold)
+    LinearProgressIndicator(progress={ (vm.step+1)/4f },modifier=Modifier.fillMaxWidth())
+    if(item.optString("service_type")=="warranty"){
+        Panel("خدمات گارانتی","این خدمت در مرکز گارانتی نامیران پیگیری می‌شود.")
+        Action("ورود به مرکز گارانتی Stage",!vm.busy){
+            val url=config.optString("warrantyHubUrl")
+            val parsed=runCatching{java.net.URI(url)}.getOrNull()
+            if(parsed?.scheme=="https"&&parsed.host=="stage.namyranservice.ir"&&parsed.userInfo==null&&parsed.port==-1)context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,android.net.Uri.parse(url)))
+        }
+        OutlinedButton(onClick={vm.changeItem("service_type","")},modifier=Modifier.fillMaxWidth()){Text("انتخاب خدمت دیگر")}
+        return
+    }
+    when(vm.step){
+        0->{
+            Picker("نوع خدمت",config.array("services").objects().map{it.optString("id") to it.optString("title")},item.optString("service_type"),!vm.busy){vm.changeItem("service_type",it)}
+            val categories=config.optJSONObject("categories")?:JSONObject()
+            val keys=categories.keys().asSequence().toList()
+            Picker("گروه دستگاه",keys.map{it to it},item.optString("category"),!vm.busy){vm.changeItem("category",it)}
+            val mode=item.optString("service_type")
+            val devices=categories.array(item.optString("category")).objects().filter{d->mode in d.array("service_modes").strings()||(mode=="periodic"&&(d.optBoolean("periodic_enabled")||d.optBoolean("settings_enabled")||d.optBoolean("maintenance_enabled")))}
+            Picker("دستگاه",devices.map{it.optString("id") to it.optString("title")},item.optString("device"),!vm.busy){id->devices.find{it.optString("id")==id}?.let(vm::chooseDevice)}
+            val device=vm.device()
+            if(device!=null&&device.array("subtypes").length()>0)Picker("نوع دستگاه",device.array("subtypes").objects().map{it.optString("id") to it.optString("title")},item.optString("catalog_subtype_id"),!vm.busy){vm.changeItem("catalog_subtype_id",it)}
+            val brands=config.array(if(mode=="install")"installBrands" else "brands").strings()
+            Picker("برند",brands.map{it to it},item.optString("brand"),!vm.busy){vm.changeItem("brand",it)}
+            Field("مدل دستگاه، در صورت اطلاع",vm.model,{vm.model=it;vm.saveDraft()},!vm.busy)
+            if(vm.isTv()){
+                val tv=config.optJSONObject("tvInstall")?:JSONObject()
+                Picker("پکیج نصب",tv.array("packages").objects().map{it.optString("id") to it.optString("title")},item.optString("installation_package"),!vm.busy){vm.changeItem("installation_package",it)}
+                tv.array("packages").objects().find{it.optString("id")==item.optString("installation_package")}?.let{p->Panel(p.optString("title"),p.array("included").strings().joinToString("\n"));if(p.array("excluded").length()>0)Text(p.array("excluded").strings().joinToString("\n"),style=MaterialTheme.typography.bodySmall)}
+                Picker("سایز تلویزیون",tv.array("sizes").strings().map{it to it},item.optString("tv_size"),!vm.busy){vm.changeItem("tv_size",it)}
+                Picker("نوع نصب و براکت",tv.array("brackets").objects().map{it.optString("id") to (it.optString("title")+" · "+it.optString("price")+" تومان")},item.optString("tv_bracket"),!vm.busy){vm.changeItem("tv_bracket",it);if(it=="tabletop")vm.changeItem("tv_wall","")}
+                if(item.optString("tv_bracket")!="tabletop")Picker("نوع دیوار",tv.array("walls").strings().map{it to it},item.optString("tv_wall"),!vm.busy){vm.changeItem("tv_wall",it)}
+                CheckOptions("خدمات تکمیلی",tv.array("services").objects(),item.array("tv_services").strings(),!vm.busy){selected->vm.item=JSONObject(vm.item.toString()).put("tv_services",JSONArray(selected));vm.saveDraft()}
+            }
+            if(device!=null){
+                val extras=device.array("services").objects().filter{mode in it.optString("mode").split(',')}
+                CheckOptions("خدمات دستگاه",extras,item.optString("catalog_service_ids").split(',').filter{it.isNotBlank()},!vm.busy){ids->
+                    val versions=JSONObject();extras.filter{it.optString("id") in ids}.forEach{versions.put(it.optString("id"),it.optInt("row_version"))}
+                    vm.item=JSONObject(vm.item.toString()).put("catalog_service_ids",ids.joinToString(",")).put("catalog_service_versions",versions);vm.saveDraft()
                 }
             }
+            vm.items.forEachIndexed{index,saved->Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Text("${index+1}. ${saved.optString("device")} · ${saved.optString("brand")}",Modifier.weight(1f));IconButton(onClick={vm.removeItem(index)}){Icon(Icons.Outlined.DeleteOutline,"حذف دستگاه")}}}
+            OutlinedButton(onClick=vm::addItem,enabled=!vm.busy,modifier=Modifier.fillMaxWidth()){Icon(Icons.Outlined.Add,null);Text("افزودن دستگاه دیگر به این درخواست")}
         }
-    }
-    InfoPanel("درخواست‌های فعال", "تا زمان ورود امن و تأیید APIهای Stage، اطلاعات شخصی یا مأموریت واقعی نمایش داده نمی‌شود.", "مشاهده درخواست‌ها") { onNavigate(RootTab.REQUESTS) }
-}
-
-@Composable private fun RequestsPage() {
-    Text("درخواست‌های من", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-    InfoPanel("هنوز به حساب وصل نشده‌اید", "درخواست‌ها، وضعیت تکنسین، تایم‌لاین و تاریخچه تنها پس از احراز هویت مشتری و دریافت داده از Core نمایش داده می‌شوند.")
-    InfoPanel("پیگیری و جزئیات مأموریت", "نمایش تأخیر، لغو، خطا، فاکتور و تکمیل خدمت در این نسخه به داده آزمایشی ساختگی متکی نیست. عملیات واقعی غیرفعال است.")
-}
-
-@Composable private fun SupportPage() {
-    Text("پشتیبانی", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-    InfoPanel("مرکز پشتیبانی", "چت، تیکت و تماس در نسخه نهایی با APIهای معتبر Stage فعال می‌شوند؛ در این نسخه ارسال پیام انجام نمی‌شود.")
-    InfoPanel("راهنمای درخواست", "پس از ثبت قطعی درخواست در Core، شماره پیگیری و وضعیت واقعی در همین بخش قابل مشاهده خواهد بود.")
-}
-
-@Composable private fun ProfilePage(onOpen: (String) -> Unit) {
-    Text("حساب کاربری", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-    InfoPanel("ورود امن", "ورود با OTP فقط بعد از تأیید قرارداد نشست Native در Stage فعال خواهد شد؛ در این نسخه هیچ شماره موبایلی ارسال نمی‌شود.")
-    listOf("دستگاه‌های من", "آدرس‌ها", "اعلان‌ها", "فاکتورها", "ضمانت خدمات", "تاریخچه درخواست‌ها", "تنظیمات").forEach { name ->
-        Card(onClick = { onOpen(name) }, shape = RoundedCornerShape(18.dp)) {
-            Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(name, fontWeight = FontWeight.Medium)
-                Icon(Icons.Outlined.ChevronLeft, contentDescription = null)
+        1->{
+            Field("نام و نام خانوادگی",vm.name,{vm.name=it;vm.saveDraft()},!vm.busy)
+            val cities=config.optJSONObject("customerMobile")?.array("cities")?.objects().orEmpty()
+            if(cities.isEmpty())Panel("شهر فعالی دریافت نشد","محدوده خدمات باید توسط مدیریت Core فعال شود.")
+            Picker("شهر محل خدمت",cities.map{it.optString("id") to it.optString("title")},vm.city,!vm.busy){vm.city=it;vm.area="";vm.saveDraft()}
+            val groups=cities.find{it.optString("id")==vm.city}?.array("groups")?.objects().orEmpty()
+            val areas=groups.flatMap{g->g.array("areas").objects().map{a->a.optString("title") to (g.optString("title")+" · "+a.optString("title"))}}
+            if(areas.isNotEmpty())Picker("محله / محدوده",areas,vm.area,!vm.busy){vm.area=it;vm.saveDraft()}
+            Field("نشانی دقیق، پلاک و واحد",vm.address,{vm.address=it;vm.saveDraft()},!vm.busy,lines=3)
+            Field("شرح مشکل یا نیاز به خدمت",vm.description,{vm.description=it;vm.saveDraft()},!vm.busy,lines=4)
+            LocationButton(vm)
+            if(vm.latitude.isNotBlank())Text("موقعیت ثبت شد · دقت ${vm.accuracy.ifBlank{"نامشخص"}} متر",style=MaterialTheme.typography.bodySmall)
+            OutlinedButton(onClick=vm::loadAddresses,enabled=!vm.busy,modifier=Modifier.fillMaxWidth()){Text("انتخاب از نشانی‌های من")}
+            vm.addresses.forEach{row->val a=try{JSONObject(row.optString("data_json"))}catch(_:Exception){JSONObject()};OutlinedButton(onClick={vm.address=a.optString("address");vm.latitude=a.optString("latitude");vm.longitude=a.optString("longitude");vm.saveDraft()},modifier=Modifier.fillMaxWidth()){Text(a.optString("address"))}}
+        }
+        2->{
+            Panel("زمان پیشنهادی شما","این بازه برای بررسی و هماهنگی مراجعه ثبت می‌شود؛ تأیید نهایی پس از بررسی نامیران انجام می‌شود.")
+            Action(if(vm.date.isBlank())"انتخاب تاریخ مراجعه" else vm.date,!vm.busy){
+                val start=runCatching{LocalDate.parse(config.optString("serverNow").take(10))}.getOrDefault(LocalDate.now())
+                val chosen=runCatching{LocalDate.parse(vm.date)}.getOrDefault(start)
+                DatePickerDialog(context,{_,year,month,day->vm.getSchedule(LocalDate.of(year,month+1,day).toString())},chosen.year,chosen.monthValue-1,chosen.dayOfMonth).show()
             }
+            vm.schedule?.let{s->Text(s.optString("dateJalali"),fontWeight=FontWeight.Bold);s.array("slots").objects().forEach{slot->
+                val value=slot.optString("value");OutlinedButton(onClick={vm.slot=value;vm.saveDraft()},enabled=slot.optBoolean("available")&&!vm.busy,modifier=Modifier.fillMaxWidth(),colors=ButtonDefaults.outlinedButtonColors(containerColor=if(vm.slot==value)MaterialTheme.colorScheme.primaryContainer else Color.Transparent)){
+                    Text(value+if(slot.optBoolean("available"))"" else " · قابل انتخاب نیست")
+                }
+            }}
         }
+        3->{
+            SectionTitle("خلاصه درخواست")
+            (vm.items+JSONObject(vm.item.toString()).put("device_model",vm.model)).forEach{d->Panel(listOf(d.optString("device"),d.optString("brand")).joinToString(" · "),listOf(config.array("services").objects().find{it.optString("id")==d.optString("service_type")}?.optString("title"),d.optString("device_model")).filterNotNull().filter{it.isNotBlank()}.joinToString("\n"))}
+            Panel(vm.name,vm.address)
+            if(vm.description.isNotBlank())Panel("شرح درخواست",vm.description)
+            Panel("زمان پیشنهادی",(vm.schedule?.optString("dateJalali")?:vm.date)+" · "+vm.slot)
+            Row(verticalAlignment=Alignment.CenterVertically){Checkbox(vm.terms,{vm.terms=it},enabled=!vm.busy);Text("صحت اطلاعات و ثبت زمان پیشنهادی برای بررسی و هماهنگی را می‌پذیرم.",style=MaterialTheme.typography.bodyMedium)}
+            Action("ثبت نهایی درخواست",!vm.busy&&vm.terms,vm::submit)
+        }
+    }
+    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(12.dp)){
+        OutlinedButton(onClick={if(vm.step>0)vm.step-- else vm.creating=false;vm.saveDraft()},enabled=!vm.busy,modifier=Modifier.weight(1f).heightIn(min=54.dp)){Text("بازگشت")}
+        if(vm.step<3)Button(onClick=vm::next,enabled=!vm.busy,modifier=Modifier.weight(1f).heightIn(min=54.dp)){Text("ادامه")}
     }
 }
 
-@Composable private fun DetailPage(title: String) {
-    Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-    val descriptions = mapOf(
-        "دستگاه‌های من" to "فهرست دستگاه‌ها و مدل‌های ثبت‌شده پس از احراز هویت و دریافت اطلاعات واقعی نمایش داده می‌شود.",
-        "آدرس‌ها" to "نشانی‌های ذخیره‌شده به صورت امن از API مشتری در Stage دریافت خواهند شد.",
-        "اعلان‌ها" to "برای اعلان‌های مأموریت و پرداخت به قرارداد اطلاع‌رسانی معتبر نیاز است.",
-        "فاکتورها" to "فقط مبالغ و اسناد تأییدشده Core مجاز به نمایش هستند.",
-        "ضمانت خدمات" to "ضمانت معتبر و تاریخ آن باید از Warranty Core خوانده شود.",
-        "تاریخچه درخواست‌ها" to "فقط پرونده‌های متعلق به نشست تأییدشده مشتری نمایش داده می‌شوند.",
-        "تنظیمات" to "حالت روشن/تاریک از دکمه بالای برنامه قابل تغییر است؛ سایر تنظیمات پس از تکمیل زیرساخت اضافه خواهند شد."
-    )
-    InfoPanel("در انتظار اتصال امن Stage", descriptions[title] ?: "داده‌ای از سرور دریافت نشده است.")
+@Composable private fun LocationButton(vm:CustomerViewModel){
+    val context=LocalContext.current
+    var status by remember{mutableStateOf("")}
+    val locate={
+        val manager=context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        val provider=listOf(LocationManager.GPS_PROVIDER,LocationManager.NETWORK_PROVIDER).firstOrNull{manager.isProviderEnabled(it)}
+        if(provider==null)status="موقعیت‌یابی دستگاه را روشن کنید."
+        else if(android.os.Build.VERSION.SDK_INT>=30&&context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED){
+            status="در حال دریافت موقعیت…"
+            manager.getCurrentLocation(provider,CancellationSignal(),context.mainExecutor){point->
+                if(point==null)status="موقعیت دریافت نشد؛ دوباره تلاش کنید."
+                else{vm.latitude=point.latitude.toString();vm.longitude=point.longitude.toString();vm.accuracy=point.accuracy.toString();vm.saveDraft();status="موقعیت محل ثبت شد."}
+            }
+        }else if(context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED){
+            status="در حال دریافت موقعیت…"
+            val listener=object:android.location.LocationListener{
+                override fun onLocationChanged(point:android.location.Location){manager.removeUpdates(this);vm.latitude=point.latitude.toString();vm.longitude=point.longitude.toString();vm.accuracy=point.accuracy.toString();vm.saveDraft();status="موقعیت محل ثبت شد."}
+                @Deprecated("Legacy callback") override fun onStatusChanged(provider:String?,state:Int,extras:Bundle?){}
+                override fun onProviderEnabled(provider:String){}
+                override fun onProviderDisabled(provider:String){manager.removeUpdates(this);status="موقعیت‌یابی خاموش است."}
+            }
+            @Suppress("DEPRECATION")
+            manager.requestSingleUpdate(provider,listener,android.os.Looper.getMainLooper())
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({manager.removeUpdates(listener);if(status=="در حال دریافت موقعیت…")status="موقعیت دریافت نشد؛ دوباره تلاش کنید."},30000)
+        }else status="مجوز موقعیت دقیق لازم است."
+    }
+    val permission=rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()){grants->if(grants[Manifest.permission.ACCESS_FINE_LOCATION]==true)locate() else status="مجوز موقعیت دقیق داده نشد؛ برای نشانی الزامی، از نشانی ذخیره‌شده استفاده کنید."}
+    OutlinedButton(onClick={if(context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED)locate() else permission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION,Manifest.permission.ACCESS_COARSE_LOCATION))},enabled=!vm.busy,modifier=Modifier.fillMaxWidth()){Icon(Icons.Outlined.MyLocation,null);Spacer(Modifier.width(8.dp));Text("ثبت موقعیت فعلی محل خدمت")}
+    if(status.isNotBlank())Text(status,style=MaterialTheme.typography.bodySmall)
 }
 
-@Composable
-private fun RequestSteps(step: Int, draft: RequestDraft, showErrors: Boolean, onDraftChange: (RequestDraft) -> Unit, onBack: () -> Unit, onContinue: () -> Unit, onClose: () -> Unit) {
-    val titles = listOf("انتخاب خدمت و دستگاه", "شرح مشکل", "نشانی خدمت", "زمان مراجعه", "بازبینی و تأیید")
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-        Text("درخواست جدید", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-        TextButton(onClick = onClose) { Text("بستن") }
+@Composable private fun Receipt(vm:CustomerViewModel){
+    val r=vm.receipt?:return
+    Surface(color=MaterialTheme.colorScheme.primaryContainer,shape=RoundedCornerShape(28.dp)){
+        Column(Modifier.fillMaxWidth().padding(24.dp),verticalArrangement=Arrangement.spacedBy(16.dp),horizontalAlignment=Alignment.CenterHorizontally){Icon(Icons.Outlined.CheckCircle,null,Modifier.size(56.dp));Text("درخواست ثبت شد",style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.Bold);Text(r.optString("tracking_code"),fontSize=28.sp,fontWeight=FontWeight.Bold);Text(r.optString("status_label"))}
     }
-    Text("مرحله ${step + 1} از ۵ · ${titles[step]}", fontWeight = FontWeight.SemiBold)
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-        repeat(5) { i -> Box(Modifier.weight(1f).height(6.dp).background(if (i <= step) NamyranColors.blue else MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(6.dp))) }
-    }
-    if (step == 0) {
-        Text("نوع خدمت")
-        listOf("تعمیر", "نصب و راه‌اندازی", "سرویس دوره‌ای", "عیب‌یابی").forEach { Choice(it, draft.service == it) { onDraftChange(draft.copy(service = it)) } }
-        Text("نوع دستگاه")
-        listOf("کولر گازی", "یخچال و فریزر", "ماشین لباسشویی", "ماشین ظرفشویی", "تلویزیون").forEach { Choice(it, draft.appliance == it) { onDraftChange(draft.copy(appliance = it)) } }
-        OutlinedTextField(draft.brand, { onDraftChange(draft.copy(brand = it)) }, label = { Text("برند دستگاه") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-        if (!draft.modelUnknown) OutlinedTextField(draft.model, { onDraftChange(draft.copy(model = it)) }, label = { Text("مدل دستگاه") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(draft.modelUnknown, { onDraftChange(draft.copy(modelUnknown = it)) })
-            Text("مدل را نمی‌دانم")
-        }
-    }
-    if (step == 1) {
-        OutlinedTextField(draft.description, { onDraftChange(draft.copy(description = it)) }, label = { Text("شرح مشکل یا نیاز به خدمات") }, modifier = Modifier.fillMaxWidth(), minLines = 4)
-        Text("تصاویر و ویدیو بعد از تأیید دسترسی فایل خصوصی Core اضافه خواهند شد.", style = MaterialTheme.typography.bodySmall)
-    }
-    if (step == 2) {
-        OutlinedTextField(draft.province, { onDraftChange(draft.copy(province = it, city = "")) }, label = { Text("استان") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-        OutlinedTextField(draft.city, { onDraftChange(draft.copy(city = it)) }, label = { Text("شهر") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-        OutlinedTextField(draft.address, { onDraftChange(draft.copy(address = it)) }, label = { Text("نشانی دقیق") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
-        Text("ورودی فعلی صرفاً پیش‌نویس است. انتخاب فهرستی استان/شهر و کنترل محدوده پوشش باید با داده معتبر Stage تکمیل شود.", style = MaterialTheme.typography.bodySmall)
-    }
-    if (step == 3) {
-        InfoPanel("ظرفیت معتبر دریافت نشده است", "هیچ بازه زمانی تأییدنشده‌ای برای رزرو نمایش داده نمی‌شود. ابتدا باید API ظرفیت واقعی شهر و خدمت از Core در محیط Stage تأیید شود.")
-    }
-    if (step == 4) {
-        InfoPanel("ثبت نهایی غیرفعال است", "بدون احراز هویت، پذیرش شرایط، زمان معتبر و پاسخ موفق Core شماره پیگیری ایجاد نمی‌شود.")
-    }
-    if (showErrors) RequestRules.check(step, draft).forEach { error -> Text("• ${error.explanation}", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        OutlinedButton(onClick = onBack, modifier = Modifier.weight(1f).heightIn(min = 56.dp)) { Text("بازگشت") }
-        Box(Modifier.weight(1f)) {
-            GradientAction(if (step >= 3) "در انتظار اتصال Stage" else "ادامه", enabled = step < 3, onClick = onContinue)
-        }
-    }
-    Text("پیش‌نمایش آفلاین؛ هیچ اطلاعاتی به Stage یا Production ارسال نمی‌شود.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+    Text(if(vm.receiptInAccount)"همین کد پیگیری در حساب شما بازخوانی و تأیید شد." else "ثبت توسط Core تأیید شد؛ برای بررسی نمایش در حساب، درخواست‌ها را به‌روزرسانی کنید.")
+    Action("مشاهده درخواست در حساب",!vm.busy,vm::loadRequests)
 }
 
-@Composable
-private fun Choice(label: String, selected: Boolean, onClick: () -> Unit) {
-    Surface(onClick = onClick, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface) {
-        Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text(label)
-            RadioButton(selected = selected, onClick = onClick)
-        }
+@Composable private fun Tracking(vm:CustomerViewModel){
+    SectionTitle("جزئیات درخواست")
+    val data=vm.tracking?:return
+    val r=data.optJSONObject("request")?:data
+    Panel("کد پیگیری",r.optString("tracking_code"))
+    listOf("status_label" to "وضعیت","device" to "دستگاه","brand" to "برند","visit_date_jalali" to "تاریخ مراجعه","address" to "نشانی").forEach{(key,label)->if(r.optString(key).isNotBlank())Panel(label,r.optString(key))}
+    val steps=r.array("workflow").objects()
+    steps.forEach{s->Text(listOf(s.optString("title"),s.optString("label"),s.optString("status")).filter{it.isNotBlank()}.joinToString(" · "))}
+    OutlinedButton(onClick={vm.tab="requests"},modifier=Modifier.fillMaxWidth()){Text("بازگشت به درخواست‌ها")}
+}
+
+@Composable private fun SectionTitle(title:String,count:String=""){Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically){Text(title,style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold);if(count.isNotBlank())Text(count,color=MaterialTheme.colorScheme.primary)}}
+@Composable private fun Panel(title:String,body:String){Surface(shape=RoundedCornerShape(20.dp),color=MaterialTheme.colorScheme.surface,modifier=Modifier.fillMaxWidth()){Column(Modifier.padding(18.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){Text(title,fontWeight=FontWeight.Bold);if(body.isNotBlank())Text(body,color=MaterialTheme.colorScheme.onSurfaceVariant,style=MaterialTheme.typography.bodyMedium)}}}
+@Composable private fun Action(title:String,enabled:Boolean=true,onClick:()->Unit){Button(onClick=onClick,enabled=enabled,modifier=Modifier.fillMaxWidth().heightIn(min=56.dp),shape=RoundedCornerShape(18.dp)){Text(title,fontWeight=FontWeight.Bold)}}
+@Composable private fun Field(label:String,value:String,onChange:(String)->Unit,enabled:Boolean=true,type:KeyboardType=KeyboardType.Text,lines:Int=1){OutlinedTextField(value,onChange,label={Text(label)},enabled=enabled,modifier=Modifier.fillMaxWidth(),shape=RoundedCornerShape(16.dp),keyboardOptions=KeyboardOptions(keyboardType=type),singleLine=lines==1,minLines=lines)}
+@Composable private fun Picker(label:String,options:List<Pair<String,String>>,value:String,enabled:Boolean=true,onChoose:(String)->Unit){
+    var open by remember{mutableStateOf(false)};var search by remember{mutableStateOf("")}
+    OutlinedButton(onClick={search="";open=true},enabled=enabled&&options.isNotEmpty(),shape=RoundedCornerShape(16.dp),modifier=Modifier.fillMaxWidth().heightIn(min=58.dp)){
+        Column(Modifier.weight(1f)){Text(label,style=MaterialTheme.typography.labelSmall);Text(options.find{it.first==value}?.second?:"انتخاب کنید",fontWeight=FontWeight.SemiBold)};Icon(Icons.Outlined.ExpandMore,null)
     }
+    if(open)AlertDialog(onDismissRequest={open=false},title={Text(label)},text={Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
+        if(options.size>8)Field("جست‌وجو",search,{search=it})
+        Column(Modifier.heightIn(max=360.dp).verticalScroll(rememberScrollState())){options.filter{it.second.contains(search,true)}.forEach{(id,title)->TextButton(onClick={onChoose(id);open=false},modifier=Modifier.fillMaxWidth()){Text(title,Modifier.weight(1f));if(id==value)Icon(Icons.Outlined.Check,null)}}}
+    }},confirmButton={TextButton(onClick={open=false}){Text("بستن")}})
+}
+@Composable private fun CheckOptions(label:String,options:List<JSONObject>,selected:List<String>,enabled:Boolean,onChange:(List<String>)->Unit){
+    if(options.isEmpty())return
+    Text(label,fontWeight=FontWeight.Bold)
+    options.forEach{row->val id=row.optString("id");Row(verticalAlignment=Alignment.CenterVertically){Checkbox(id in selected,{checked->onChange(if(checked)selected+id else selected-id)},enabled=enabled);Column{Text(row.optString("title"));if(row.has("price"))Text(row.optString("price")+" تومان",style=MaterialTheme.typography.labelSmall)}}}
 }
