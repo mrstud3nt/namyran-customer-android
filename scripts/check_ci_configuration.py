@@ -8,7 +8,7 @@ assert "gradle-version: '9.6.0'" in w
 assert "sdkmanager 'platforms;android-36'" in w
 assert 'id("com.android.application") version "9.4.0"' in g
 assert 'id("org.jetbrains.kotlin.plugin.compose") version "2.4.10"' in g
-assert 'compileSdk = 37' in b
+assert 'compileSdk = 36' in b
 assert 'applicationId = "ir.namyranservice.customer.stage"' in b
 assert 'BACKEND_ENABLED", "false"' in b
 assert 'https://namyranservice.ir/' not in b
