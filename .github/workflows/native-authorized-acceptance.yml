@@ -1,5 +1,5 @@
 name: Authorized Native Stage acceptance
-# Attempt 2: sanitized assertion diagnostics; no private runner output is uploaded.
+# One-off authorized mutation: only workflow run 4 may receive a real session.
 on:
   pull_request:
     branches: [main]
@@ -9,7 +9,7 @@ permissions:
   actions: read
 jobs:
   native-acceptance:
-    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'codex/stage-core-integration'
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'codex/stage-core-integration' && github.run_number == 4
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -28,6 +28,7 @@ jobs:
           name: native-acceptance-public-key
           path: /tmp/native-acceptance.pub
           retention-days: 1
+          overwrite: true
       - name: Download exact tested APK pair from build 21
         uses: actions/download-artifact@v4
         with:

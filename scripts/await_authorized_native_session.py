@@ -1,7 +1,7 @@
 """Decrypt a user-authorized Stage session with this job's ephemeral private key.
 Only ciphertext is read from the approved development branch. Never print secrets.
 """
-import base64,json,os,pathlib,subprocess,time,urllib.request,urllib.error
+import hashlib,base64,json,os,pathlib,subprocess,time,urllib.request,urllib.error
 run=os.environ['GITHUB_RUN_ID'];repo=os.environ['GITHUB_REPOSITORY']
 url=f'https://api.github.com/repos/{repo}/contents/audit/native-session-{run}.enc?ref=codex%2Fstage-core-integration'
 for attempt in range(100):
@@ -10,6 +10,9 @@ for attempt in range(100):
   with urllib.request.urlopen(req,timeout=15) as r:data=json.load(r)
   document=json.loads(base64.b64decode(data['content']))
   assert str(document['run_id'])==run
+  expected=hashlib.sha256(pathlib.Path('/tmp/native-acceptance.pub').read_bytes()).hexdigest()
+  if document.get('recipient_public_key_sha256')!=expected:
+   time.sleep(6);continue
   encrypted=base64.b64decode(document['ciphertext']);assert len(encrypted)<=1024
   path=pathlib.Path('/tmp/native-session.enc');path.write_bytes(encrypted);path.chmod(0o600)
   session=pathlib.Path('/tmp/native-session.json')
