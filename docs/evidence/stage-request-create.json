@@ -1,0 +1,29 @@
+{
+  "verified_at_utc": "2026-11-04T21:58:34.247212+00:00",
+  "environment": "https://stage.namyranservice.ir",
+  "method": "Actual public Core HTTPS API; same Android payload contract, not Android UI E2E",
+  "request_id": 1,
+  "tracking_code_redacted": true,
+  "customer_phone_redacted": true,
+  "fixture": "User-authorized explicitly labeled Stage test; fictitious address and default coordinates; no actual service requested",
+  "create_http": 200,
+  "account_http": 200,
+  "account_same_tracking_found": true,
+  "track_http": 200,
+  "track_success": true,
+  "date": "2026-11-06",
+  "slot": "۱۰ تا ۱۲",
+  "device_catalog_id": 6,
+  "device_row_version": 1,
+  "service": "repair",
+  "brand_default": "LG",
+  "idempotent_replay": {
+    "http_status": 200,
+    "same_request_id": true,
+    "same_tracking_code": true,
+    "duplicate_flag": true,
+    "account_http": 200,
+    "matching_rows": 1,
+    "account_count": 1
+  }
+}
