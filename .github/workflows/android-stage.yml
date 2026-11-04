@@ -4,6 +4,13 @@ on:
   workflow_dispatch:
   pull_request:
     branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - 'audit/native-session-*.enc'
+      - '.github/workflows/native-authorized-acceptance.yml'
+      - 'scripts/await_authorized_native_session.py'
+      - 'scripts/run_native_acceptance.py'
+      - 'README_FA.md' 
 
 permissions:
   contents: read

@@ -1,4 +1,5 @@
 name: Authorized Native Stage acceptance
+# Attempt 2: sanitized assertion diagnostics; no private runner output is uploaded.
 on:
   pull_request:
     branches: [main]

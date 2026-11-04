@@ -26,7 +26,12 @@ try:
         # Fresh emulator Wi-Fi/DNS can become ready after the app's first GET.
         # Retry only the visible read-only catalog action; never OTP or submission.
         retry=next((n for n in root.iter('node') if n.get('text')=='تلاش دوباره' and n.get('enabled')=='true'),None)
-        if retry is not None and attempt%5==0:click(root,'تلاش دوباره')
+        failed=any('ارتباط با Stage کامل نشد' in n.get('text','') for n in root.iter('node'))
+        if failed and attempt in (5,15,30):
+            # A tap on old coordinates can hit the new-request CTA after config arrives.
+            # Restarting this read-only screen avoids that race and cannot send an OTP.
+            adb('shell','am','force-stop',pkg)
+            adb('shell','am','start','-W','-n',pkg+'/ir.namyranservice.customer.MainActivity')
         time.sleep(1)
     else:raise AssertionError('Live Stage configuration did not load; inspect captured UI')
     screenshot('home-light')
