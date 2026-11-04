@@ -1,6 +1,6 @@
 from pathlib import Path
 root=Path(__file__).resolve().parents[1]
-w=(root/'.github/workflows/customer-stage-debug.yml').read_text()
+w=(root/'.github/workflows/android-stage.yml').read_text()
 b=(root/'app/build.gradle.kts').read_text()
 g=(root/'build.gradle.kts').read_text()
 assert 'workflow_dispatch:' in w
