@@ -65,7 +65,7 @@ class MainActivity : ComponentActivity() {
                 Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(horizontal=20.dp,vertical=16.dp),verticalArrangement=Arrangement.spacedBy(16.dp)){
                     Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween){
                         Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){
-                            Surface(shape=RoundedCornerShape(16.dp),color=NamyranColors.blue){Icon(Icons.Outlined.Handyman,null,Modifier.padding(12.dp),tint=Color.White)}
+                            Surface(shape=RoundedCornerShape(16.dp),color=Color.White){androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(R.drawable.namyran_symbol),"نشان نامیران سرویس",Modifier.size(52.dp).padding(4.dp))}
                             Column{Text("نامیران سرویس",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold);Text("محیط آزمایش · Stage",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
                         }
                         IconButton(onClick={vm.dark=!vm.dark}){Icon(if(vm.dark)Icons.Outlined.LightMode else Icons.Outlined.DarkMode,"تغییر حالت نمایش")}

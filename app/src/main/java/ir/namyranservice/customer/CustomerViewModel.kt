@@ -59,7 +59,7 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
             mobile = saved.optString("mobile"); token = saved.optString("token")
         }
         pending = store.read("pending")
-        store.read("draft")?.let { d ->
+        store.read("draft")?.takeIf { mobile.isNotBlank() && it.optString("owner_mobile")==mobile }?.let { d ->
             item = d.optJSONObject("item") ?: JSONObject(); items = d.array("items").objects()
             name=d.optString("name"); model=d.optString("model"); description=d.optString("description")
             city=d.optString("city"); area=d.optString("area"); address=d.optString("address")
@@ -181,7 +181,7 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
     }
     fun getSchedule(value:String) {val d=normalizedDigits(value).trim();date=d;slot="";schedule=null;saveDraft();launchTask {val r=api.schedule(d);return@launchTask {schedule=r}}}
     fun saveDraft() {
-        store.write("draft",JSONObject().put("item",item).put("items",JSONArray(items)).put("name",name).put("model",model).put("description",description).put("city",city).put("area",area).put("address",address).put("date",date).put("slot",slot).put("latitude",latitude).put("longitude",longitude).put("accuracy",accuracy))
+        store.write("draft",JSONObject().put("owner_mobile",mobile).put("item",item).put("items",JSONArray(items)).put("name",name).put("model",model).put("description",description).put("city",city).put("area",area).put("address",address).put("date",date).put("slot",slot).put("latitude",latitude).put("longitude",longitude).put("accuracy",accuracy))
     }
     fun submit() {
         if(!loggedIn||!terms||busy||pending!=null){error="ورود به حساب و پذیرش شرایط لازم است.";return}
