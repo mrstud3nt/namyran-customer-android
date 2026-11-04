@@ -34,8 +34,8 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
 
-      - name: Install Android API 37 and build tools
-        run: sdkmanager 'platforms;android-37' 'build-tools;36.0.0' 'platform-tools'
+      - name: Install Android API 36 and build tools
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'platform-tools'
 
       - name: Validate Stage-only source
         run: python3 audit/check_stage_only.py
@@ -59,7 +59,7 @@ jobs:
       - name: Publish Stage Debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: Namyran-Customer-Stage-v0.2.1-debug
+          name: Namyran-Customer-Stage-v0.2.2-debug
           path: |
             app/build/outputs/apk/debug/app-debug.apk
             app/build/outputs/apk/debug/SHA256SUMS.txt
