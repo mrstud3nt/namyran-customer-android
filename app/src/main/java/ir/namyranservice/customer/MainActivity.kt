@@ -230,6 +230,7 @@ class MainActivity : ComponentActivity() {
             if(areas.isNotEmpty())Picker("محله / محدوده",areas,vm.area,!vm.busy){vm.area=it;vm.saveDraft()}
             Field("نشانی دقیق، پلاک و واحد",vm.address,{vm.address=it;vm.saveDraft()},!vm.busy,lines=3)
             Field("شرح مشکل یا نیاز به خدمت",vm.description,{vm.description=it;vm.saveDraft()},!vm.busy,lines=4)
+            ImageAttachments(vm)
             LocationButton(vm)
             if(vm.latitude.isNotBlank())Text("موقعیت ثبت شد · دقت ${vm.accuracy.ifBlank{"نامشخص"}} متر",style=MaterialTheme.typography.bodySmall)
             OutlinedButton(onClick=vm::loadAddresses,enabled=!vm.busy,modifier=Modifier.fillMaxWidth()){Text("انتخاب از نشانی‌های من")}
@@ -253,6 +254,7 @@ class MainActivity : ComponentActivity() {
             (vm.items+vm.currentItemForReview()).forEach{d->Panel(listOf(d.optString("device"),d.optString("brand")).joinToString(" · "),listOf(config.array("services").objects().find{it.optString("id")==d.optString("service_type")}?.optString("title"),d.optString("device_model")).filterNotNull().filter{it.isNotBlank()}.joinToString("\n"))}
             Panel(vm.name,vm.address)
             if(vm.description.isNotBlank())Panel("شرح درخواست",vm.description)
+            ImageAttachments(vm,review=true)
             Panel("زمان پیشنهادی",(vm.schedule?.optString("dateJalali")?:vm.date)+" · "+vm.slot)
             Row(verticalAlignment=Alignment.CenterVertically){Checkbox(vm.terms,{vm.terms=it},enabled=!vm.busy);Text("صحت اطلاعات و ثبت زمان پیشنهادی برای بررسی و هماهنگی را می‌پذیرم.",style=MaterialTheme.typography.bodyMedium)}
             Action("ثبت نهایی درخواست",!vm.busy&&vm.terms,vm::submit)
@@ -261,6 +263,26 @@ class MainActivity : ComponentActivity() {
     Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(12.dp)){
         OutlinedButton(onClick={if(vm.step>0)vm.step-- else vm.creating=false;vm.saveDraft()},enabled=!vm.busy,modifier=Modifier.weight(1f).heightIn(min=54.dp)){Text("بازگشت")}
         if(vm.step<3)Button(onClick=vm::next,enabled=!vm.busy,modifier=Modifier.weight(1f).heightIn(min=54.dp)){Text("ادامه")}
+    }
+}
+
+@Composable private fun ImageAttachments(vm:CustomerViewModel,review:Boolean=false){
+    val picker=rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments(),vm::addImages)
+    val maxFiles=ir.namyranservice.customer.domain.ImageRules.maxFiles(vm.config?.optInt("maxFiles",3)?:3)
+    val maxMB=(vm.config?.optInt("maxUploadMB",5)?:5).coerceIn(1,20)
+    SectionTitle("تصاویر درخواست", "${vm.images.size} از $maxFiles")
+    if(!review){
+        Text("JPEG، PNG یا WebP · هر تصویر حداکثر $maxMB مگابایت",style=MaterialTheme.typography.bodySmall)
+        OutlinedButton(onClick={picker.launch(arrayOf("image/jpeg","image/png","image/webp"))},enabled=!vm.busy&&vm.images.size<maxFiles,modifier=Modifier.fillMaxWidth()){
+            Icon(Icons.Outlined.AddPhotoAlternate,null);Spacer(Modifier.width(8.dp));Text("انتخاب تصویر")
+        }
+    }
+    vm.images.forEachIndexed { index,meta ->
+        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
+            Icon(Icons.Outlined.Image,null)
+            Text("تصویر ${index+1} · ${meta.optLong("size")/1024} کیلوبایت",Modifier.weight(1f).padding(8.dp))
+            if(!review)IconButton(onClick={vm.removeImage(meta.getString("id"))},enabled=!vm.busy){Icon(Icons.Outlined.DeleteOutline,"حذف تصویر ${index+1}")}
+        }
     }
 }
 
@@ -301,6 +323,7 @@ class MainActivity : ComponentActivity() {
         Column(Modifier.fillMaxWidth().padding(24.dp),verticalArrangement=Arrangement.spacedBy(16.dp),horizontalAlignment=Alignment.CenterHorizontally){Icon(Icons.Outlined.CheckCircle,null,Modifier.size(56.dp));Text("درخواست ثبت شد",style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.Bold);Text(r.optString("tracking_code"),fontSize=28.sp,fontWeight=FontWeight.Bold);Text(r.optString("status_label"))}
     }
     Text(if(vm.receiptInAccount)"همین کد پیگیری در حساب شما بازخوانی و تأیید شد." else "ثبت توسط Core تأیید شد؛ برای بررسی نمایش در حساب، درخواست‌ها را به‌روزرسانی کنید.")
+    if(r.optInt("local_image_count")>0)Panel("وضعیت تصاویر",if(r.optBoolean("local_images_confirmed"))"Core ذخیره ${r.optInt("local_image_count")} تصویر را تأیید کرد." else "درخواست ثبت شده، اما ذخیره همه تصاویر تأیید نشد. با همین کد پیگیری از پشتیبانی پیگیری کنید؛ درخواست تازه ثبت نکنید.")
     Action("مشاهده درخواست در حساب",!vm.busy,vm::loadRequests)
 }
 

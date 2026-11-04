@@ -1,6 +1,8 @@
 package ir.namyranservice.customer
 
 import android.app.Application
+import android.net.Uri
+import ir.namyranservice.customer.domain.ImageRules
 import android.os.Handler
 import android.os.Looper
 import androidx.compose.runtime.*
@@ -15,6 +17,8 @@ import java.util.concurrent.Executors
 class CustomerViewModel(application: Application) : AndroidViewModel(application) {
     private val api = CoreApi()
     private val store = SecureStore(application)
+    private val imageStore = AttachmentStore(application)
+    var images by mutableStateOf<List<JSONObject>>(emptyList()); private set
     private val executor = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
     var busy by mutableStateOf(false); private set
@@ -60,6 +64,7 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
         }
         pending = store.read("pending")
         store.read("draft")?.takeIf { mobile.isNotBlank() && it.optString("owner_mobile")==mobile }?.let { d ->
+            images=d.array("images").objects()
             item = d.optJSONObject("item") ?: JSONObject(); items = d.array("items").objects()
             name=d.optString("name"); model=d.optString("model"); description=d.optString("description")
             city=d.optString("city"); area=d.optString("area"); address=d.optString("address")
@@ -86,7 +91,7 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
     private fun auth() = JSONObject().put("mobile",mobile).put("verification_token",token)
     private fun clearSession() {
         token=""; loggedIn=false; requests=emptyList();addresses=emptyList();tracking=null
-        receiptInAccount=false;requestsLoaded=false;name="";address="";description="";city="";area="";latitude="";longitude="";accuracy="";model="";item=JSONObject();items=emptyList();terms=false;creating=false;store.write("draft",null);store.write("receipt",null);store.write("session",null);api.clearCookies()
+        images=emptyList();if(pending==null)imageStore.clear();receiptInAccount=false;requestsLoaded=false;name="";address="";description="";city="";area="";latitude="";longitude="";accuracy="";model="";item=JSONObject();items=emptyList();terms=false;creating=false;store.write("draft",null);store.write("receipt",null);store.write("session",null);api.clearCookies()
     }
     fun refresh() {
         launchTask {
@@ -181,8 +186,25 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
         saveDraft();step++
     }
     fun getSchedule(value:String) {val d=normalizedDigits(value).trim();date=d;slot="";schedule=null;saveDraft();launchTask {val r=api.schedule(d);return@launchTask {schedule=r}}}
+    fun addImages(uris:List<Uri>) {
+        if(!loggedIn||pending!=null||uris.isEmpty())return
+        val maxFiles=ImageRules.maxFiles(config?.optInt("maxFiles",3)?:3)
+        val maxBytes=ImageRules.maxBytes(config?.optInt("maxUploadMB",5)?:5)
+        if(images.size+uris.size>maxFiles){error="حداکثر $maxFiles تصویر طبق تنظیمات Core مجاز است.";return}
+        launchTask {
+            val imported=mutableListOf<JSONObject>()
+            try {uris.forEach { imported+=imageStore.import(it,maxBytes) }}
+            catch(e:Exception){imported.forEach(imageStore::remove);throw e}
+            return@launchTask {images=images+imported;saveDraft()}
+        }
+    }
+    fun removeImage(id:String) {
+        if(busy||pending!=null)return
+        images.find{it.optString("id")==id}?.let(imageStore::remove)
+        images=images.filter{it.optString("id")!=id};saveDraft()
+    }
     fun saveDraft() {
-        store.write("draft",JSONObject().put("owner_mobile",mobile).put("item",item).put("items",JSONArray(items)).put("name",name).put("model",model).put("description",description).put("city",city).put("area",area).put("address",address).put("date",date).put("slot",slot).put("latitude",latitude).put("longitude",longitude).put("accuracy",accuracy))
+        store.write("draft",JSONObject().put("images",JSONArray(images)).put("owner_mobile",mobile).put("item",item).put("items",JSONArray(items)).put("name",name).put("model",model).put("description",description).put("city",city).put("area",area).put("address",address).put("date",date).put("slot",slot).put("latitude",latitude).put("longitude",longitude).put("accuracy",accuracy))
     }
     fun submit() {
         if(!loggedIn||!terms||busy||pending!=null){error="ورود به حساب و پذیرش شرایط لازم است.";return}
@@ -196,6 +218,7 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
             .put("terms_accepted","1").put("request_origin","android_stage").put("submission_token",UUID.randomUUID().toString()).put("owner_mobile",mobile)
         payload.put("vip_required",if(allItems.any{it.optString("installation_package")=="vip"})"1" else "0")
         payload.put("tv_services",primary.optJSONArray("tv_services")?.toString()?:"[]")
+        payload.put("local_images",JSONArray(images))
         pending=payload;store.write("pending",payload);retryPending()
     }
     fun retryPending() {
@@ -204,13 +227,21 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
         if(saved.optString("owner_mobile")!=mobile){error="ثبت معلق متعلق به حساب دیگری است؛ به همان حساب وارد شوید.";return}
         launchTask {
             val payload=JSONObject(saved.toString()).put("mobile",mobile).put("verification_token",token)
-            val result=api.post("requests",payload)
+            val selected=saved.array("local_images").objects()
+            val maxFiles=ImageRules.maxFiles(config?.optInt("maxFiles",3)?:3)
+            val maxBytes=ImageRules.maxBytes(config?.optInt("maxUploadMB",5)?:5)
+            if(selected.size>maxFiles||selected.any{it.optLong("size")>maxBytes})throw CoreFailure("image_limits_changed","محدودیت تصاویر در Core تغییر کرده است؛ ثبت قبلی را با پشتیبانی بررسی کنید.")
+            payload.remove("local_images");payload.remove("owner_mobile")
+            val result=api.post("requests",payload,selected,imageStore)
+            val filesConfirmed=selected.isEmpty()||(!result.optBoolean("duplicate")&&result.array("attachments").length()==selected.size)
+            result.put("local_image_count",selected.size).put("local_images_confirmed",filesConfirmed)
             if(!result.optBoolean("success")||result.optInt("request_id")<=0||result.optString("tracking_code").isBlank())throw CoreFailure("submission_invalid","پاسخ ثبت درخواست معتبر نیست. همان درخواست را دوباره بررسی کنید.")
             // Persist the receipt before the read-back, so a list/network failure never loses the tracking code.
             store.write("receipt",result);store.write("pending",null)
+            if(filesConfirmed)selected.forEach(imageStore::remove)
             var rows:List<JSONObject>?=null
             try {rows=api.post("my-requests",auth()).array("requests").objects()}catch(_:Exception){}
-            return@launchTask {receipt=result;pending=null;receiptInAccount=rows?.any{it.optString("tracking_code")==result.optString("tracking_code")}==true
+            return@launchTask {receipt=result;pending=null;if(filesConfirmed)images=emptyList();receiptInAccount=rows?.any{it.optString("tracking_code")==result.optString("tracking_code")}==true
                 if(rows!=null){requests=rows!!;requestsLoaded=true}
                 creating=false;tab="receipt";item=JSONObject();items=emptyList();terms=false;store.write("draft",null)}
         }

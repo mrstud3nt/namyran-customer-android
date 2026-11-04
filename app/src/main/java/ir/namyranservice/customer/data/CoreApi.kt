@@ -58,7 +58,7 @@ class CoreApi {
     private var restNonce = ""
     init { require(NativeRules.allowedBase(BuildConfig.API_BASE_URL)) }
 
-    private fun request(path: String, method: String, content: String? = null, form: Boolean = false): JSONObject {
+    private fun request(path: String, method: String, content: String? = null, form: Boolean = false, images: List<JSONObject> = emptyList(), imageStore: AttachmentStore? = null): JSONObject {
         val url = if (path.startsWith("/wp-admin/")) URL(origin + path) else base.resolve(path).toURL()
         require(url.protocol == "https" && url.host == base.host && url.port == -1)
         val connection = url.openConnection() as HttpURLConnection
@@ -74,7 +74,27 @@ class CoreApi {
             cookies.get(url.toURI(), emptyMap()).forEach { (k,v) -> if (v.isNotEmpty()) connection.setRequestProperty(k, v.joinToString("; ")) }
             if (nonce.isNotBlank()) connection.setRequestProperty("X-NSC-Public-Nonce", nonce)
             if (restNonce.isNotBlank()) connection.setRequestProperty("X-WP-Nonce", restNonce)
-            if (content != null) {
+            if (images.isNotEmpty()) {
+                require(method=="POST"&&path=="namyran-service/v1/requests"&&imageStore!=null)
+                val boundary="Namyran"+java.util.UUID.randomUUID().toString().replace("-", "")
+                connection.doOutput=true;connection.setChunkedStreamingMode(8192)
+                connection.setRequestProperty("Content-Type","multipart/form-data; boundary=$boundary")
+                connection.outputStream.buffered().use { out ->
+                    fun text(value:String){out.write(value.toByteArray(Charsets.UTF_8))}
+                    val fields=JSONObject(content!!)
+                    fields.keys().forEach { field ->
+                        require(field.matches(Regex("[a-zA-Z0-9_]+")))
+                        text("--$boundary\r\nContent-Disposition: form-data; name=\"$field\"\r\n\r\n${fields.get(field)}\r\n")
+                    }
+                    images.forEachIndexed { index,meta ->
+                        val kind=ir.namyranservice.customer.domain.ImageRules.kind(imageStore.read(meta))
+                            ?:throw CoreFailure("image_invalid","تصویر ذخیره‌شده معتبر نیست.")
+                        text("--$boundary\r\nContent-Disposition: form-data; name=\"attachments[]\"; filename=\"image-${index+1}.${kind.second}\"\r\nContent-Type: ${kind.first}\r\n\r\n")
+                        out.write(imageStore.read(meta));text("\r\n")
+                    }
+                    text("--$boundary--\r\n")
+                }
+            } else if (content != null) {
                 connection.doOutput = true
                 connection.setRequestProperty("Content-Type", if (form) "application/x-www-form-urlencoded; charset=UTF-8" else "application/json; charset=UTF-8")
                 connection.outputStream.use { it.write(content.toByteArray(Charsets.UTF_8)) }
@@ -101,14 +121,15 @@ class CoreApi {
         if (!r.optBoolean("success") || data?.optString("nonce").isNullOrBlank()) throw CoreFailure("bootstrap_failed", "دریافت نشست امن انجام نشد.")
         nonce = data!!.getString("nonce"); restNonce = data.optString("rest_nonce")
     }
-    @Synchronized fun post(route: String, payload: JSONObject): JSONObject {
+    @Synchronized fun post(route: String, payload: JSONObject, images: List<JSONObject> = emptyList(), imageStore: AttachmentStore? = null): JSONObject {
         require(route in setOf("otp/send", "otp/verify", "otp/session", "otp/logout", "requests", "my-requests", "track", "customer-addresses"))
+        if(images.isNotEmpty()) { require(route=="requests"&&imageStore!=null); images.forEach { imageStore.read(it) } }
         if (nonce.isBlank()) bootstrap()
-        try { return request("namyran-service/v1/$route", "POST", payload.toString()) }
+        try { return request("namyran-service/v1/$route", "POST", payload.toString(), images=images, imageStore=imageStore) }
         catch (e: CoreFailure) {
             if (!NativeRules.mayRefreshNonce(e.code)) throw e
             bootstrap() // Retry only an explicitly rejected nonce, never SMS or an uncertain submission.
-            return request("namyran-service/v1/$route", "POST", payload.toString())
+            return request("namyran-service/v1/$route", "POST", payload.toString(), images=images, imageStore=imageStore)
         }
     }
     @Synchronized fun config(): JSONObject = request("namyran-customer/v1/config", "GET").also {

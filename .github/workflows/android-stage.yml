@@ -54,7 +54,7 @@ jobs:
         run: gradle --no-daemon --stacktrace :app:testDebugUnitTest :app:lintDebug
 
       - name: Build Stage Debug APK
-        run: gradle --no-daemon --stacktrace :app:assembleDebug
+        run: gradle --no-daemon --stacktrace :app:assembleDebug :app:assembleDebugAndroidTest
 
       - name: Verify APK structure and identity
         run: |
@@ -69,10 +69,11 @@ jobs:
       - name: Publish Stage Debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: Namyran-Customer-Stage-v0.3.1-debug
+          name: Namyran-Customer-Stage-v0.3.2-debug
           path: |
             app/build/outputs/apk/debug/app-debug.apk
             app/build/outputs/apk/debug/SHA256SUMS.txt
+            app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
           if-no-files-found: error
           retention-days: 14
 
@@ -99,7 +100,7 @@ jobs:
           java-version: '17'
       - uses: actions/download-artifact@v4
         with:
-          name: Namyran-Customer-Stage-v0.3.1-debug
+          name: Namyran-Customer-Stage-v0.3.2-debug
           path: smoke-apk
       - name: Verify live Stage metadata before emulator
         run: python3 audit/probe_stage_readonly.py
@@ -116,7 +117,11 @@ jobs:
           arch: x86_64
           profile: pixel_6
           disable-animations: true
-          script: python3 scripts/emulator_smoke.py smoke-apk/app-debug.apk
+          script: |
+            python3 scripts/emulator_smoke.py smoke-apk/debug/app-debug.apk
+            adb install -r smoke-apk/androidTest/debug/app-debug-androidTest.apk
+            adb shell am instrument -w -r -e class ir.namyranservice.customer.AttachmentStoreTest ir.namyranservice.customer.stage.test/androidx.test.runner.AndroidJUnitRunner | tee smoke-evidence/image-tests.txt
+            python3 -c "from pathlib import Path; s=Path('smoke-evidence/image-tests.txt').read_text(); assert 'OK (2 tests)' in s and 'FAILURES' not in s, s"
       - name: Upload device evidence
         if: always()
         uses: actions/upload-artifact@v4
