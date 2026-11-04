@@ -10,10 +10,12 @@ source=pathlib.Path(args.session_file)
 if source.stat().st_mode & 0o077:raise SystemExit('Session file must be private (chmod 600).')
 session=json.loads(source.read_text())
 cmd=['adb','shell','am','instrument','-w','-r','-e','class','ir.namyranservice.customer.NativeSubmissionTest','-e','authorized_phone',session['mobile'],'-e','authorized_token',session['verification_token'],'ir.namyranservice.customer.stage.test/androidx.test.runner.AndroidJUnitRunner']
-result=subprocess.run(cmd,capture_output=True,text=True,timeout=900)
-# Runner output can contain UI diagnostics; keep it private and do not echo it.
-log=pathlib.Path('/tmp/namyran-native-acceptance-private.log');log.write_text(result.stdout+'\n'+result.stderr);log.chmod(0o600)
-if result.returncode or 'OK (1 test)' not in result.stdout or 'FAILURES' in result.stdout:
+log=pathlib.Path('/tmp/namyran-native-acceptance-private.log')
+with log.open('w') as stream:
+ os.chmod(log,0o600)
+ result=subprocess.run(cmd,stdout=stream,stderr=subprocess.STDOUT,text=True,timeout=600)
+output=log.read_text()
+if result.returncode or 'OK (1 test)' not in output or 'FAILURES' in output:
  raise SystemExit('Native acceptance failed; inspect the private local runner log.')
 evidence=subprocess.check_output(['adb','exec-out','run-as','ir.namyranservice.customer.stage','cat','files/native-submission-evidence.json'])
 value=json.loads(evidence)
