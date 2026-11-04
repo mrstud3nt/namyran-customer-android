@@ -1,0 +1,24 @@
+{
+  "verified_at_utc": "2026-11-04T21:44:24.494Z",
+  "environment": "https://stage.namyranservice.ir",
+  "phone": "user-authorized; redacted",
+  "otp_send": {
+    "http_status": 200,
+    "success": true,
+    "dev_mode": false,
+    "expires_in": 180
+  },
+  "otp_verify": {
+    "http_status": 200,
+    "success": true,
+    "verified_for_seconds": 2592000
+  },
+  "my_requests": {
+    "http_status": 200,
+    "success": true,
+    "count": 0
+  },
+  "method": "Direct HTTPS public Core API using same payload/nonce/cookie contract as Android client; not Android UI end-to-end",
+  "request_creation": "not attempted; awaiting real device and service address",
+  "secrets": "OTP, nonce, session token and phone excluded"
+}

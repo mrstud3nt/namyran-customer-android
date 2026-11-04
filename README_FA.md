@@ -1,33 +1,30 @@
-# Namyran Customer — Stage Debug via GitHub Actions (v0.2.1)
+# اپ مشتری Namyran Service — Native Stage
 
-**وضعیت:** آماده ارسال به GitHub Actions برای آزمایش Build؛ هنوز خروجی APK در این محیط کامپایل و تأیید نشده است.
+Kotlin و Jetpack Compose؛ شناسه نصب `ir.namyranservice.customer.stage`.
 
-## ساخت در GitHub، بدون Android Studio
+## وضعیت
 
-1. یک مخزن خصوصی GitHub بسازید، مثلاً `namyran-customer-android`.
-2. **محتویات داخل این ZIP** را در ریشه مخزن آپلود کنید (نه خود فایل ZIP را).
-3. در مخزن به **Actions** بروید و Workflow با نام `Namyran Customer Stage APK | Phase 10` را باز کنید.
-4. دکمه **Run workflow** را بزنید و شاخه پیش‌فرض را انتخاب کنید.
-5. پس از موفقیت Job، از پایین صفحه اجرای Workflow بخش **Artifacts**، فایل `Namyran-Customer-Stage-v0.2.1-debug` را دانلود کنید.
-6. ZIP مربوط به Artifact را باز کنید؛ `app-debug.apk` را روی گوشی Android نصب و آزمایش کنید.
+این شاخه در حال اتصال و آزمون پذیرش است؛ موفقیت Build به معنی تأیید پیامک، ثبت دیتابیس یا آماده بودن انتشار نیست. گزارش نهایی و وضعیت تست‌های زنده در `docs/STAGE_EXECUTION_REPORT_FA.md` ثبت می‌شوند. ادغام و Production مجاز نیستند.
 
-## محدودیت‌های ایمنی
+## اتصال
 
-- `applicationId`: `ir.namyranservice.customer.stage`
-- فقط نشانی Stage در `BuildConfig` وجود دارد.
-- بدون INTERNET permission، بدون OTP و بدون ارسال درخواست واقعی؛ همه بخش‌های متکی به Core غیرفعال‌اند.
-- Workflow با اجرای دستی ساخته می‌شود، Production و Core تغییر نمی‌کنند.
-- از امضای Debug مخصوص runner استفاده می‌شود؛ برای آپدیت‌های متوالی روی همان دستگاه ممکن است به دلیل متفاوت‌بودن کلید امضا نیاز به حذف نسخه قبلی باشد.
-- این فایل APK در صورت Build موفق برای آزمایش UI است، نه انتشار Production.
+اپ به `https://stage.namyranservice.ir` محدود است و Redirect را دنبال نمی‌کند. ورود و عملیات مشتری از مسیرهای موجود `namyran-service/v1` استفاده می‌کنند. هیچ رمز مدیریتی، OTP ثابت یا داده نمونه‌ای در نسخه اپ وجود ندارد.
 
-## نکته Build
+افزونه مستقل `stage-adapter/namyran-customer-stage-bridge` باید فقط در Stage نصب و فعال شود. این افزونه دو مسیر GET در `namyran-customer/v1` برای config و schedule فراهم می‌کند. کاتالوگ از پیکربندی فعلی فرم Core، شهرها از `NSC_Geo_Data::active_service_catalog` و زمان‌بندی از `NSC_Utils::is_visit_slot_available` خوانده می‌شوند؛ ثبت و احراز هویت تغییر نمی‌کنند. فعال شدن افزونه در دامنه اصلی رد می‌شود.
 
-فایل‌های Gradle Wrapper داخل بسته نیستند؛ Workflow با `gradle/actions/setup-gradle@v4` نسخه دقیق Gradle 9.6.0 را روی runner نصب می‌کند و از دستور `gradle :app:assembleDebug` استفاده می‌کند. بنابراین برای **GitHub Actions** نیازی به `gradlew` نیست. اجرای مستقیم `./gradlew` در این بسته ممکن نیست.
+مدل دستگاه و شرح مشکل در Core فعلی متن آزاد هستند. زمان‌ها پیشنهاد مراجعه‌اند، نه رزرو ظرفیت. شهر و محله همراه نشانی به Core ارسال می‌شوند؛ API فعلی ثبت، فیلد مجزای city را ذخیره نمی‌کند.
 
-نسخه‌ها: AGP 9.4.0، Gradle 9.6.0، JDK 17، Kotlin Compose Compiler Plugin 2.4.10، compileSdk 37.
+نشست و پیش‌نویس با Android Keystore رمزگذاری می‌شوند. ثبت مبهم با همان submission_token بازیابی می‌شود و به شماره حساب اولیه محدود است.
 
-## پیش‌نیاز بررسی خطا
+## بررسی
 
-اگر Action شکست خورد، اولین خطای `e:` کامپایلر یا متن Failed Task را از Build Job ارسال کنید. موفقیت تست‌های Python جایگزین کامپایل Android نیست.
+با Java 17، Android SDK 36 و Gradle 9.6.0:
 
-**مرحله ۱۰ ادامه دارد؛ مرحله ۱۱ شروع نشده است.**
+```
+gradle :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+python3 audit/check_stage_only.py
+python3 scripts/check_ci_configuration.py
+php stage-adapter/tests/bridge-test.php
+```
+
+گزارش‌های Android و APK در GitHub Actions ذخیره می‌شوند. آزمون‌های PHP دارای fixture واحد هستند؛ این fixtureها در افزونه نصب یا APK استفاده نمی‌شوند.

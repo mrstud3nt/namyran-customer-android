@@ -1,0 +1,14 @@
+{
+  "verified_at_utc": "2026-11-04T22:18:45.259162+00:00",
+  "environment": "https://stage.namyranservice.ir",
+  "method": "Real HTTPS multipart API, not Android UI",
+  "authorized_test_data": true,
+  "http_status": 200,
+  "success": true,
+  "request_id": 2,
+  "image_format": "image/png",
+  "image_count_sent": 1,
+  "image_count_confirmed": 1,
+  "error_code": null,
+  "account_same_tracking_found": true
+}

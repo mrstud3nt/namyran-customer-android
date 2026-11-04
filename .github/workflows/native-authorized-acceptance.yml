@@ -1,0 +1,69 @@
+name: Authorized Native Stage acceptance
+# One-off authorized mutation: only workflow run 8 may receive a real session.
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/native-authorized-acceptance.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  native-acceptance:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'codex/stage-core-integration' && github.run_number == 8
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Create ephemeral acceptance key
+        run: |
+          umask 077
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out /tmp/native-acceptance.key 2>/dev/null
+          openssl pkey -in /tmp/native-acceptance.key -pubout -out /tmp/native-acceptance.pub
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-acceptance-public-key
+          path: /tmp/native-acceptance.pub
+          retention-days: 1
+          overwrite: true
+      - name: Download exact tested APK pair from build 29
+        uses: actions/download-artifact@v4
+        with:
+          name: Namyran-Customer-Stage-v0.3.3-debug
+          run-id: 41930745223
+          github-token: ${{ github.token }}
+          path: acceptance-apk
+      - name: Await encrypted authorized Stage session
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/await_authorized_native_session.py
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Real Stage native form, image, receipt and account
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            adb install -r acceptance-apk/debug/app-debug.apk
+            adb install -r acceptance-apk/androidTest/debug/app-debug-androidTest.apk
+            python3 scripts/run_native_acceptance.py /tmp/native-session.json
+      - name: Publish sanitized acceptance evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-authorized-sanitized-evidence
+          path: docs/evidence/android-native-submission.json
+          if-no-files-found: ignore
+      - name: Remove ephemeral credentials
+        if: always()
+        run: rm -f /tmp/native-acceptance.key /tmp/native-session.enc /tmp/native-session.json /tmp/namyran-native-acceptance-private.log
