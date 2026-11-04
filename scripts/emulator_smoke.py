@@ -20,9 +20,13 @@ adb('install','-r',sys.argv[1]);adb('logcat','-c')
 result=adb('shell','am','start','-W','-n',pkg+'/ir.namyranservice.customer.MainActivity').decode()
 assert 'Error:' not in result,result
 try:
-    for attempt in range(30):
+    for attempt in range(60):
         root=dump('home')
         if any(n.get('text')=='ثبت درخواست جدید' for n in root.iter('node')):break
+        # Fresh emulator Wi-Fi/DNS can become ready after the app's first GET.
+        # Retry only the visible read-only catalog action; never OTP or submission.
+        retry=next((n for n in root.iter('node') if n.get('text')=='تلاش دوباره' and n.get('enabled')=='true'),None)
+        if retry is not None and attempt%5==0:click(root,'تلاش دوباره')
         time.sleep(1)
     else:raise AssertionError('Live Stage configuration did not load; inspect captured UI')
     screenshot('home-light')
