@@ -76,24 +76,17 @@ class CoreApi {
             if (restNonce.isNotBlank()) connection.setRequestProperty("X-WP-Nonce", restNonce)
             if (images.isNotEmpty()) {
                 require(method=="POST"&&path=="namyran-service/v1/requests"&&imageStore!=null)
-                val boundary="Namyran"+java.util.UUID.randomUUID().toString().replace("-", "")
-                connection.doOutput=true;connection.setChunkedStreamingMode(8192)
-                connection.setRequestProperty("Content-Type","multipart/form-data; boundary=$boundary")
-                connection.outputStream.buffered().use { out ->
-                    fun text(value:String){out.write(value.toByteArray(Charsets.UTF_8))}
-                    val fields=JSONObject(content!!)
-                    fields.keys().forEach { field ->
-                        require(field.matches(Regex("[a-zA-Z0-9_]+")))
-                        text("--$boundary\r\nContent-Disposition: form-data; name=\"$field\"\r\n\r\n${fields.get(field)}\r\n")
-                    }
-                    images.forEachIndexed { index,meta ->
-                        val kind=ir.namyranservice.customer.domain.ImageRules.kind(imageStore.read(meta))
-                            ?:throw CoreFailure("image_invalid","تصویر ذخیره‌شده معتبر نیست.")
-                        text("--$boundary\r\nContent-Disposition: form-data; name=\"attachments[]\"; filename=\"image-${index+1}.${kind.second}\"\r\nContent-Type: ${kind.first}\r\n\r\n")
-                        out.write(imageStore.read(meta));text("\r\n")
-                    }
-                    text("--$boundary--\r\n")
+                val fields=JSONObject(content!!)
+                val parts=images.mapIndexed { index,meta ->
+                    val kind=ir.namyranservice.customer.domain.ImageRules.kind(imageStore.read(meta))
+                        ?:throw CoreFailure("image_invalid","تصویر ذخیره‌شده معتبر نیست.")
+                    MultipartBody.Part("image-${index+1}.${kind.second}",kind.first,meta.getLong("size")){imageStore.read(meta)}
                 }
+                val body=MultipartBody("Namyran"+java.util.UUID.randomUUID().toString().replace("-",""),fields.keys().asSequence().map{it to fields.get(it).toString()}.toList(),parts)
+                connection.doOutput=true
+                connection.setFixedLengthStreamingMode(body.contentLength)
+                connection.setRequestProperty("Content-Type","multipart/form-data; boundary=${body.boundary}")
+                connection.outputStream.buffered().use(body::writeTo)
             } else if (content != null) {
                 connection.doOutput = true
                 connection.setRequestProperty("Content-Type", if (form) "application/x-www-form-urlencoded; charset=UTF-8" else "application/json; charset=UTF-8")

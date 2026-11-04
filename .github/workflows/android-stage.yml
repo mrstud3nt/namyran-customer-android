@@ -10,7 +10,7 @@ on:
       - '.github/workflows/native-authorized-acceptance.yml'
       - 'scripts/await_authorized_native_session.py'
       - 'scripts/run_native_acceptance.py'
-      - 'README_FA.md' 
+      - 'README_FA.md'
 
 permissions:
   contents: read
@@ -76,7 +76,7 @@ jobs:
       - name: Publish Stage Debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: Namyran-Customer-Stage-v0.3.2-debug
+          name: Namyran-Customer-Stage-v0.3.3-debug
           path: |
             app/build/outputs/apk/debug/app-debug.apk
             app/build/outputs/apk/debug/SHA256SUMS.txt
@@ -107,7 +107,7 @@ jobs:
           java-version: '17'
       - uses: actions/download-artifact@v4
         with:
-          name: Namyran-Customer-Stage-v0.3.2-debug
+          name: Namyran-Customer-Stage-v0.3.3-debug
           path: smoke-apk
       - name: Verify live Stage metadata before emulator
         run: python3 audit/probe_stage_readonly.py
