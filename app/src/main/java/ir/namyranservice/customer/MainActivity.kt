@@ -12,7 +12,9 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -25,11 +27,15 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.LayoutDirection
@@ -54,74 +60,219 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable private fun CustomerApp(vm:CustomerViewModel) {
-    BackHandler(vm.creating || vm.tab in listOf("tracking","receipt")) { if(!vm.busy){if(vm.creating&&vm.step>0)vm.step-- else {vm.creating=false;vm.tab="home"};vm.saveDraft()} }
+    BackHandler(vm.loggedIn && (vm.creating || vm.tab in listOf("tracking","receipt"))) { if(!vm.busy){if(vm.creating&&vm.step>0)vm.step-- else {vm.creating=false;vm.tab="home"};vm.saveDraft()} }
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
         NamyranTheme(vm.dark) {
-            Scaffold(containerColor=MaterialTheme.colorScheme.background,bottomBar={
-                if(!vm.creating)NavigationBar {
-                    listOf(Triple("home","خانه",Icons.Outlined.Home),Triple("requests","درخواست‌ها",Icons.Outlined.ReceiptLong),Triple("profile","حساب من",Icons.Outlined.PersonOutline)).forEach{(id,title,icon)->
-                        NavigationBarItem(selected=vm.tab==id,onClick={if(!vm.busy){vm.tab=id;if(id=="requests")vm.loadRequests()}},icon={Icon(icon,null)},label={Text(title)})
-                    }
-                }
-            }){padding->
-                Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(horizontal=20.dp,vertical=16.dp),verticalArrangement=Arrangement.spacedBy(16.dp)){
-                    Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween){
-                        Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){
-                            Surface(shape=RoundedCornerShape(16.dp),color=Color.White){androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(R.drawable.namyran_symbol),"نشان نامیران سرویس",Modifier.size(52.dp).padding(4.dp))}
-                            Column{Text("نامیران سرویس",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold);Text("محیط آزمایش · Stage",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
-                        }
-                        IconButton(onClick={vm.dark=!vm.dark}){Icon(if(vm.dark)Icons.Outlined.LightMode else Icons.Outlined.DarkMode,"تغییر حالت نمایش")}
-                    }
-                    if(vm.busy)LinearProgressIndicator(Modifier.fillMaxWidth())
-                    if(vm.error.isNotBlank())Surface(color=MaterialTheme.colorScheme.errorContainer,shape=RoundedCornerShape(16.dp)){
-                        Column(Modifier.padding(16.dp)){Text(vm.error,color=MaterialTheme.colorScheme.onErrorContainer);TextButton(onClick=vm::dismissError){Text("بستن پیام")}}
-                    }
-                    if(vm.message.isNotBlank())Text(vm.message,color=MaterialTheme.colorScheme.primary)
-                    if(vm.pending!=null){
-                        Panel("ثبت قبلی نیاز به بررسی دارد","برای جلوگیری از ثبت تکراری، همان درخواست با همان شناسه دوباره بررسی می‌شود.")
-                        Action("بررسی نتیجه ثبت قبلی",!vm.busy&&vm.loggedIn){vm.retryPending()}
-                    }
-                    if(vm.config==null){
-                        Panel("دریافت اطلاعات خدمات","فهرست خدمات باید از Core محیط آزمایش دریافت شود.")
-                        Action("تلاش دوباره",!vm.busy){vm.refresh()}
-                    }else if(vm.creating&&vm.pending==null)RequestFlow(vm)
-                    else when(vm.tab){
-                        "home"->Home(vm)
-                        "requests"->Requests(vm)
-                        "profile"->Profile(vm)
-                        "receipt"->Receipt(vm)
-                        "tracking"->Tracking(vm)
-                    }
-                    Spacer(Modifier.height(16.dp))
-                }
-            }
+            if (vm.loggedIn) CustomerWorkspace(vm)
+            else LoginScreen(vm)
         }
     }
 }
 
-@Composable private fun Home(vm:CustomerViewModel){
-    Column(Modifier.fillMaxWidth().background(Brush.linearGradient(listOf(NamyranColors.blue,NamyranColors.cyan)),RoundedCornerShape(28.dp)).padding(24.dp),verticalArrangement=Arrangement.spacedBy(14.dp)){
-        Text(if(vm.loggedIn)"سلام ${vm.name.takeIf{it.isNotBlank()}?:"همراه نامیران"}" else "خدمات مطمئن، خیال آسوده",color=Color.White,fontWeight=FontWeight.Bold,fontSize=24.sp)
-        Text("نصب، تعمیر و نگهداری لوازم خانگی",color=Color.White)
-        Button(onClick=vm::startRequest,enabled=!vm.busy&&vm.pending==null,modifier=Modifier.fillMaxWidth().heightIn(min=54.dp),colors=ButtonDefaults.buttonColors(containerColor=Color.White,contentColor=NamyranColors.blue)){Text("ثبت درخواست جدید")}
-    }
-    if(vm.loggedIn){
-        val active=vm.requests.filter{it.optString("status") !in listOf("completed","cancelled")}
-        SectionTitle("درخواست‌های فعال",active.size.toString())
-        if(vm.requestsLoaded&&active.isEmpty())Panel("درخواست فعالی ندارید","برای شروع، خدمت و دستگاه موردنظر را انتخاب کنید.")
-        active.take(2).forEach{RequestCard(it,vm)}
-    }else Panel("همه خدمات در حساب شما","برای ثبت و پیگیری درخواست‌ها با شماره موبایل وارد شوید.")
-    SectionTitle("خدمات ما")
-    val services=vm.config!!.array("services").objects()
-    services.chunked(2).forEach{row->Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(12.dp)){
-        row.forEach{s->Card(onClick={vm.startRequest();if(vm.loggedIn)vm.changeItem("service_type",s.getString("id"))},modifier=Modifier.weight(1f),shape=RoundedCornerShape(22.dp)){
-            Column(Modifier.padding(18.dp).heightIn(min=80.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
-                Icon(when(s.optString("icon")){"install"->Icons.Outlined.Handyman;"warranty"->Icons.Outlined.VerifiedUser;"periodic"->Icons.Outlined.Update;else->Icons.Outlined.Build},null,tint=MaterialTheme.colorScheme.primary)
-                Text(s.optString("title"),fontWeight=FontWeight.Bold)
+@Composable private fun CustomerWorkspace(vm: CustomerViewModel) {
+    var showMenu by rememberSaveable { mutableStateOf(false) }
+    var showHelp by rememberSaveable { mutableStateOf(false) }
+    val context = LocalContext.current
+    Scaffold(containerColor=MaterialTheme.colorScheme.background,bottomBar={
+        if(!vm.creating)NavigationBar {
+            listOf(Triple("home","خانه",Icons.Outlined.Home),Triple("requests","درخواست‌ها",Icons.Outlined.ReceiptLong),Triple("profile","حساب من",Icons.Outlined.PersonOutline)).forEach{(id,title,icon)->
+                NavigationBarItem(selected=vm.tab==id,onClick={if(!vm.busy){vm.tab=id;if(id=="requests")vm.loadRequests()}},icon={Icon(icon,null)},label={Text(title)})
             }
-        }};if(row.size==1)Spacer(Modifier.weight(1f))
-    }}
-    TextButton(onClick={vm.refresh()},enabled=!vm.busy){Icon(Icons.Outlined.Refresh,null);Spacer(Modifier.width(6.dp));Text("به‌روزرسانی اطلاعات خدمات")}
+        }
+    }){padding->
+        Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(horizontal=20.dp,vertical=16.dp),verticalArrangement=Arrangement.spacedBy(16.dp)){
+            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween){
+                Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                    Box {
+                        IconButton(onClick={showMenu=true},enabled=!vm.busy&&!vm.creating) {
+                            Icon(Icons.Outlined.Menu,"منوی حساب")
+                        }
+                        DropdownMenu(showMenu,{showMenu=false}) {
+                            Row(Modifier.widthIn(min=220.dp).padding(horizontal=16.dp,vertical=8.dp), verticalAlignment=Alignment.CenterVertically, horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                                CustomerAvatar(vm.accountName)
+                                Column(Modifier.weight(1f,false)) {
+                                    Text(vm.accountName.ifBlank { if(vm.loggedIn) "حساب مشتری" else "نامیران سرویس" },fontWeight=FontWeight.Bold)
+                                    if(vm.loggedIn) Text(vm.mobile,style=MaterialTheme.typography.labelMedium)
+                                }
+                            }
+                            DropdownMenuItem(text={Text(if(vm.loggedIn)"حساب و نشانی‌ها" else "ورود به ناحیه کاربری")},leadingIcon={Icon(Icons.Outlined.PersonOutline,null)},onClick={showMenu=false;vm.tab="profile"})
+                            DropdownMenuItem(text={Text("راهنمای نامیران سرویس")},leadingIcon={Icon(Icons.Outlined.HelpOutline,null)},onClick={showMenu=false;showHelp=true})
+                            DropdownMenuItem(text={Text("ارتباط با پشتیبانی")},leadingIcon={Icon(Icons.Outlined.SupportAgent,null)},onClick={showMenu=false;openSupport(context)})
+                        }
+                    }
+                    Surface(shape=RoundedCornerShape(16.dp),color=Color.White){androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(R.drawable.namyran_symbol),"نشان نامیران سرویس",Modifier.size(52.dp).padding(4.dp))}
+                    Column{Text("نامیران سرویس",style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold);Text("محیط آزمایش · Stage",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
+                }
+                IconButton(onClick={vm.setDarkMode(!vm.dark)}){Icon(if(vm.dark)Icons.Outlined.LightMode else Icons.Outlined.DarkMode,"تغییر حالت نمایش")}
+            }
+            if(vm.busy && vm.tab!="home")LinearProgressIndicator(Modifier.fillMaxWidth())
+            if(vm.error.isNotBlank())Surface(color=MaterialTheme.colorScheme.errorContainer,shape=RoundedCornerShape(16.dp)){
+                Column(Modifier.padding(16.dp)){Text(vm.error,color=MaterialTheme.colorScheme.onErrorContainer);TextButton(onClick=vm::dismissError){Text("بستن پیام")}}
+            }
+            if(vm.message.isNotBlank())Text(vm.message,color=MaterialTheme.colorScheme.primary)
+            if(vm.pending!=null){
+                Panel("ثبت قبلی نیاز به بررسی دارد","برای جلوگیری از ثبت تکراری، همان درخواست با همان شناسه دوباره بررسی می‌شود.")
+                Action("بررسی نتیجه ثبت قبلی",!vm.busy&&vm.loggedIn){vm.retryPending()}
+            }
+            if(showHelp) AlertDialog(
+                onDismissRequest={showHelp=false}, title={Text("راهنمای نامیران سرویس")},
+                text={Text("از خانه خدمت و دستگاه را انتخاب کنید. پس از ورود، نشانی و زمان پیشنهادی را وارد کنید. کد پیگیری و آخرین وضعیت را در درخواست‌ها ببینید.")},
+                confirmButton={TextButton(onClick={showHelp=false}){Text("بستن")}}
+            )
+            if(vm.config==null && vm.creating){
+                Panel("دریافت اطلاعات خدمات","فهرست خدمات باید از Core محیط آزمایش دریافت شود.")
+                Action("تلاش دوباره",!vm.busy){vm.refresh()}
+            }else if(vm.creating&&vm.pending==null)RequestFlow(vm)
+            else when(vm.tab){
+                "home"->Home(vm)
+                "requests"->Requests(vm)
+                "profile"->Profile(vm)
+                "receipt"->Receipt(vm)
+                "tracking"->Tracking(vm)
+            }
+            Spacer(Modifier.height(16.dp))
+        }
+    }
+}
+
+@Composable private fun CustomerAvatar(name: String) {
+    Surface(shape=RoundedCornerShape(18.dp),color=MaterialTheme.colorScheme.primaryContainer) {
+        Box(Modifier.size(48.dp),contentAlignment=Alignment.Center) {
+            if(name.isBlank()) Icon(Icons.Outlined.PersonOutline,null)
+            else Text(name.trim().take(1),style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
+        }
+    }
+}
+
+private fun openSupport(context: Context) {
+    val intent=android.content.Intent(android.content.Intent.ACTION_DIAL,android.net.Uri.parse("tel:09375846363"))
+    if(runCatching { context.startActivity(intent) }.isFailure) {
+        android.widget.Toast.makeText(context,"پشتیبانی نامیران سرویس ۰۹۳۷۵۸۴۶۳۶۳",android.widget.Toast.LENGTH_LONG).show()
+    }
+}
+
+@Composable private fun Home(vm: CustomerViewModel, demo: Boolean = false) {
+    var query by rememberSaveable { mutableStateOf("") }
+    var demoService by rememberSaveable { mutableStateOf<String?>(null) }
+    val config = vm.config.takeUnless { demo }
+    val catalog = config ?: vm.bundledCatalog
+    val services = catalog.array("services").objects()
+    val term = query.trim().replace('ي','ی').replace('ك','ک')
+    val visibleServices = services.filter { service ->
+        service.optString("title").replace('ي','ی').replace('ك','ک').contains(term,ignoreCase=true)
+    }
+    val canStart = demo || (!vm.busy && vm.pending == null)
+    val deviceResults = if(term.isBlank()) emptyList() else findDeviceServices(catalog,services,term)
+    if(demoService != null) AlertDialog(onDismissRequest={demoService=null},
+        title={Text(demoService.orEmpty())},
+        text={Text("در حساب مشتری، پس از انتخاب خدمت، دستگاه و نشانی را وارد می‌کنید و زمان مراجعه را انتخاب می‌کنید.")},
+        confirmButton={TextButton(onClick={demoService=null}){Text("بازگشت")}})
+    if(!demo && config == null && vm.busy) {
+        LinearProgressIndicator(Modifier.fillMaxWidth())
+    }
+    BrandBanner {
+        Text("خدمات لوازم خانگی",color=Color(0xFF9AEAF4),style=MaterialTheme.typography.labelLarge)
+        Text(if(demo) "خانه آزمایشی" else "سلام، ${vm.accountName.ifBlank { "همراه نامیران" }}",color=Color.White,
+            style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.Bold)
+        Text("خدمت موردنیاز را انتخاب کنید و وضعیت آن را همین‌جا پیگیری کنید.",color=Color(0xFFD9E9FF))
+        Button(onClick={if(demo) demoService="ثبت درخواست جدید" else vm.startRequest()},enabled=canStart,
+            colors=ButtonDefaults.buttonColors(containerColor=Color.White,contentColor=NamyranColors.navy)) {
+            Icon(Icons.Outlined.Add,null)
+            Spacer(Modifier.width(6.dp))
+            Text("ثبت درخواست جدید")
+        }
+    }
+    OutlinedTextField(query,{query=it},modifier=Modifier.fillMaxWidth(),singleLine=true,
+        label={Text("جستجو در نامیران سرویس")},leadingIcon={Icon(Icons.Outlined.Search,null)},
+        trailingIcon={if(query.isNotEmpty())IconButton(onClick={query=""}){Icon(Icons.Outlined.Close,"پاک کردن جستجو")}},
+        shape=RoundedCornerShape(20.dp))
+    Text(if(term.isEmpty()) "همه خدمات" else "نتایج جستجو",Modifier.fillMaxWidth(),
+        textAlign=TextAlign.Center,style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
+    deviceResults.forEach { result ->
+        OutlinedCard(onClick={if(demo) demoService=result.title else vm.startRequest(result.serviceId,result.category,result.deviceId)},
+            enabled=canStart,modifier=Modifier.fillMaxWidth(),shape=RoundedCornerShape(18.dp)) {
+            Row(Modifier.padding(14.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)) {
+                Icon(Icons.Outlined.Search,null,tint=MaterialTheme.colorScheme.primary)
+                Text(result.title,style=MaterialTheme.typography.titleSmall)
+            }
+        }
+    }
+    if(visibleServices.isEmpty() && deviceResults.isEmpty()) {
+        if(term.isEmpty()) Panel("فعلاً خدمتی فعال نیست","برای بررسی دوباره، فهرست خدمات را به‌روزرسانی کنید.")
+        else Panel("خدمتی پیدا نشد","نام دیگری را امتحان کنید.")
+    }
+    visibleServices.chunked(2).forEach { row ->
+        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+            row.forEach { service ->
+                ServiceTile(service,canStart,Modifier.weight(1f)) {
+                    if(demo) demoService=service.optString("title") else vm.startRequest(service.getString("id"))
+                }
+            }
+            if(row.size==1) Spacer(Modifier.weight(1f))
+        }
+    }
+    if(term.isEmpty() && demo) {
+        Panel("درخواست‌های فعال","وضعیت درخواست‌های شما پس از ثبت در این بخش نمایش داده می‌شود.")
+    }
+    if(term.isEmpty() && !demo) {
+        if(vm.accountName.isBlank()) {
+            Panel("تکمیل اطلاعات حساب","نام و نشانی را می‌توانید هنگام ثبت درخواست وارد کنید.")
+        }
+        val active = vm.requests.filter { it.optString("status") !in listOf("completed","cancelled") }
+        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically) {
+            Text("درخواست‌های فعال",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold,
+                color=MaterialTheme.colorScheme.primary)
+            TextButton(onClick=vm::loadRequests,enabled=!vm.busy){Text("همه درخواست‌ها")}
+        }
+        if(vm.requestsLoaded && active.isEmpty()) Panel("درخواست فعالی ندارید","وضعیت درخواست جدید از همین بخش قابل پیگیری است.")
+        active.take(2).forEach { RequestCard(it,vm) }
+        TextButton(onClick=vm::refresh,enabled=!vm.busy){
+            Icon(Icons.Outlined.Refresh,null)
+            Spacer(Modifier.width(6.dp))
+            Text("به‌روزرسانی خدمات")
+        }
+    }
+}
+
+@Composable private fun ServiceTile(service: JSONObject, enabled: Boolean, modifier: Modifier, selected: Boolean = false, onClick: () -> Unit) {
+    val icon = when(service.optString("icon")) {
+        "install" -> Icons.Outlined.Handyman
+        "warranty" -> Icons.Outlined.VerifiedUser
+        "periodic" -> Icons.Outlined.Update
+        else -> Icons.Outlined.Build
+    }
+    val badge = when(service.optString("icon")) {
+        "install" -> Color(0xFF136483) to Color(0xFF36ABC0)
+        "warranty" -> Color(0xFF494397) to Color(0xFF7968CE)
+        "periodic" -> Color(0xFF146556) to Color(0xFF319879)
+        else -> Color(0xFF17489C) to Color(0xFF487FE3)
+    }
+    OutlinedCard(onClick=onClick,enabled=enabled,modifier=modifier,shape=RoundedCornerShape(24.dp),
+        colors=CardDefaults.outlinedCardColors(containerColor=if(selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface)) {
+        Column(Modifier.fillMaxWidth().heightIn(min=116.dp).padding(12.dp),
+            horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(9.dp)) {
+            Box(Modifier.size(54.dp).background(Brush.linearGradient(listOf(badge.first,badge.second)),RoundedCornerShape(18.dp)),
+                contentAlignment=Alignment.Center) { Icon(icon,null,Modifier.size(29.dp),tint=Color.White) }
+            Text(service.optString("title"),style=MaterialTheme.typography.titleSmall,fontWeight=FontWeight.Bold,textAlign=TextAlign.Center)
+            if(selected) Icon(Icons.Outlined.CheckCircle,"انتخاب‌شده",Modifier.size(18.dp),tint=MaterialTheme.colorScheme.primary)
+        }
+    }
+}
+
+@Composable private fun BrandBanner(centered: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
+    val shape = RoundedCornerShape(28.dp)
+    Box(Modifier.fillMaxWidth().clip(shape).background(Brush.linearGradient(
+        listOf(Color(0xFF102654),Color(0xFF1359BA),Color(0xFF087B91))))) {
+        Canvas(Modifier.matchParentSize()) {
+            val center = Offset(size.width*.07f,size.height*.12f)
+            listOf(.24f,.36f,.49f).forEach { radius ->
+                drawCircle(Color.White.copy(alpha=.12f),size.width*radius,center,style=Stroke(width=1.dp.toPx()))
+            }
+            drawCircle(Color(0xFF75E8F0).copy(alpha=.16f),size.width*.16f,center)
+        }
+        Column(Modifier.fillMaxWidth().padding(20.dp),horizontalAlignment=if(centered) Alignment.CenterHorizontally else Alignment.Start,
+            verticalArrangement=Arrangement.spacedBy(9.dp),content=content)
+    }
 }
 
 @Composable private fun Requests(vm:CustomerViewModel){
@@ -136,7 +287,15 @@ class MainActivity : ComponentActivity() {
 @Composable private fun RequestCard(row:JSONObject,vm:CustomerViewModel){
     Card(onClick={if(!vm.busy)vm.track(row.optString("tracking_code"))},modifier=Modifier.fillMaxWidth(),shape=RoundedCornerShape(22.dp)){
         Column(Modifier.padding(18.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
-            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text(row.optString("service_label"),fontWeight=FontWeight.Bold);Text(row.optString("status_label"),color=MaterialTheme.colorScheme.primary,style=MaterialTheme.typography.labelMedium)}
+            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically) {
+                Text(row.optString("service_label"),Modifier.weight(1f),fontWeight=FontWeight.Bold)
+                val attention=row.optBoolean("needs_customer_action")
+                Surface(shape=RoundedCornerShape(20.dp),
+                    color=if(attention) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor=if(attention) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSecondaryContainer) {
+                    Text(row.optString("status_label"),Modifier.padding(horizontal=10.dp,vertical=6.dp),style=MaterialTheme.typography.labelMedium)
+                }
+            }
             Text(listOf(row.optString("device"),row.optString("brand")).filter{it.isNotBlank()}.joinToString(" · "))
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text("پیگیری ${row.optString("tracking_code")}",style=MaterialTheme.typography.labelMedium);Text(row.optString("visit_date_jalali"),style=MaterialTheme.typography.labelMedium)}
             if(row.optBoolean("needs_customer_action"))Text("این درخواست نیاز به اقدام شما دارد.",color=MaterialTheme.colorScheme.error)
@@ -144,29 +303,206 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@Composable private fun Profile(vm:CustomerViewModel){
-    SectionTitle("حساب من")
-    var phone by rememberSaveable{mutableStateOf(vm.mobile)}
-    var code by rememberSaveable{mutableStateOf("")}
-    var now by remember{mutableLongStateOf(System.currentTimeMillis())}
-    LaunchedEffect(vm.resendAt){while(System.currentTimeMillis()<vm.resendAt){now=System.currentTimeMillis();kotlinx.coroutines.delay(1000)};now=System.currentTimeMillis()}
-    if(vm.loggedIn){
-        Panel("شماره تأییدشده",vm.mobile)
-        Action("مشاهده درخواست‌های من",!vm.busy,vm::loadRequests)
-        OutlinedButton(onClick=vm::loadAddresses,enabled=!vm.busy,modifier=Modifier.fillMaxWidth()){Text("دریافت نشانی‌های ذخیره‌شده")}
-        vm.addresses.forEach{row->val a=try{JSONObject(row.optString("data_json"))}catch(_:Exception){JSONObject()};Panel(row.optString("label"),a.optString("address"))}
-        OutlinedButton(onClick=vm::logout,enabled=!vm.busy,modifier=Modifier.fillMaxWidth()){Text("خروج از حساب")}
-    }else{
-        Panel("ورود با شماره موبایل","کد ورود به شماره شما پیامک می‌شود.")
-        Field("شماره موبایل",phone,{phone=it},!vm.busy&&!vm.otpSent,KeyboardType.Phone)
-        if(vm.otpSent){
-            Text("کد ارسال‌شده به ${vm.mobile} را وارد کنید.")
-            Field("کد چهاررقمی",code,{code=normalizedDigits(it).filter(Char::isDigit).take(4)},!vm.busy,KeyboardType.NumberPassword)
-            Action("تأیید و ورود",!vm.busy&&code.length==4){vm.verifyOtp(code)}
+@Composable private fun Profile(vm: CustomerViewModel) {
+    val context = LocalContext.current
+    var saved by remember(vm.mobile) { mutableStateOf(vm.localProfile()) }
+    var editing by rememberSaveable { mutableStateOf(false) }
+    var fullName by rememberSaveable { mutableStateOf("") }
+    var birthday by rememberSaveable { mutableStateOf("") }
+    var photo by rememberSaveable { mutableStateOf("") }
+    var feedback by remember { mutableStateOf("") }
+    val picker=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if(uri!=null) {
+            val retained=runCatching {
+                context.contentResolver.takePersistableUriPermission(uri,android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }.isSuccess
+            if(retained) photo=uri.toString() else feedback="دسترسی به این عکس ممکن نبود."
         }
-        val remaining=((vm.resendAt-now+999)/1000).coerceAtLeast(0)
-        OutlinedButton(onClick={vm.sendOtp(phone)},enabled=!vm.busy&&remaining==0L,modifier=Modifier.fillMaxWidth().heightIn(min=54.dp)){
-            Text(if(remaining>0)"ارسال دوباره در $remaining ثانیه" else if(vm.otpSent)"ارسال دوباره کد" else "دریافت کد ورود")
+    }
+    SectionTitle("حساب من")
+    val displayName=saved.optString("name").ifBlank { vm.accountName }
+    Card(modifier=Modifier.fillMaxWidth(),shape=RoundedCornerShape(26.dp),
+        colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.primaryContainer)) {
+        Column(Modifier.fillMaxWidth().padding(20.dp),horizontalAlignment=Alignment.CenterHorizontally,
+            verticalArrangement=Arrangement.spacedBy(10.dp)) {
+            ProfilePhoto(displayName,saved.optString("photo"))
+            Text(displayName.ifBlank { "حساب مشتری" },style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
+            Text("شماره تأییدشده · " + vm.mobile,style=MaterialTheme.typography.bodyMedium)
+            OutlinedButton(onClick={
+                fullName=displayName;birthday=saved.optString("birthday");photo=saved.optString("photo");editing=true
+            }) { Icon(Icons.Outlined.Edit,null);Spacer(Modifier.width(8.dp));Text("ویرایش پروفایل") }
+        }
+    }
+    if(editing) {
+        Panel("اطلاعات پروفایل","این اطلاعات و عکس روی همین گوشی ذخیره می‌شوند.")
+        Field("نام و نام خانوادگی",fullName,{fullName=it.take(80)})
+        Field("تاریخ تولد · اختیاری",birthday,{birthday=it.take(20)})
+        ProfilePhoto(fullName,photo)
+        Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick={picker.launch(arrayOf("image/*"))}){Text("انتخاب عکس")}
+            if(photo.isNotEmpty()) TextButton(onClick={photo=""}){Text("حذف عکس")}
+        }
+        Action("ذخیره پروفایل",fullName.trim().isNotBlank()) {
+            if(vm.saveLocalProfile(fullName,birthday,photo)){saved=vm.localProfile();editing=false;feedback="پروفایل ذخیره شد."}
+            else feedback="ذخیره پروفایل انجام نشد."
+        }
+        TextButton(onClick={editing=false}){Text("انصراف")}
+    }
+    if(feedback.isNotBlank()) Text(feedback,color=MaterialTheme.colorScheme.primary)
+    SectionTitle("نشانی‌ها و درخواست‌ها")
+    Action("مشاهده درخواست‌های من",!vm.busy,vm::loadRequests)
+    OutlinedButton(onClick=vm::loadAddresses,enabled=!vm.busy,modifier=Modifier.fillMaxWidth()){Text("دریافت نشانی‌های ذخیره‌شده")}
+    vm.addresses.forEach { row ->
+        val address=runCatching{JSONObject(row.optString("data_json"))}.getOrElse{JSONObject()}
+        Panel(when(row.optString("label")){"home"->"خانه";"work"->"محل کار";else->"نشانی دیگر"},address.optString("address"))
+    }
+    SectionTitle("تنظیمات")
+    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically) {
+        Text("حالت تاریک");Switch(vm.dark,vm::setDarkMode)
+    }
+    OutlinedButton(onClick={openSupport(context)},modifier=Modifier.fillMaxWidth()){Text("ارتباط با پشتیبانی")}
+    OutlinedButton(onClick=vm::logout,enabled=!vm.busy,modifier=Modifier.fillMaxWidth()){Text("خروج از حساب")}
+}
+
+@Composable private fun ProfilePhoto(name: String, photo: String) {
+    val context=LocalContext.current
+    val bitmap by produceState<android.graphics.Bitmap?>(null,photo) {
+        value=kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                if(photo.isBlank()) return@runCatching null
+                val resolver=context.contentResolver
+                val uri=android.net.Uri.parse(photo)
+                val bounds=android.graphics.BitmapFactory.Options().apply{inJustDecodeBounds=true}
+                resolver.openInputStream(uri)?.use{android.graphics.BitmapFactory.decodeStream(it,null,bounds)}
+                var sample=1
+                while(maxOf(bounds.outWidth,bounds.outHeight)/sample>384) sample*=2
+                resolver.openInputStream(uri)?.use {
+                    android.graphics.BitmapFactory.decodeStream(it,null,android.graphics.BitmapFactory.Options().apply{inSampleSize=sample})
+                }
+            }.getOrNull()
+        }
+    }
+    val image=bitmap
+    if(image==null) CustomerAvatar(name)
+    else androidx.compose.foundation.Image(image.asImageBitmap(),"عکس پروفایل",
+        Modifier.size(72.dp).clip(RoundedCornerShape(25.dp)),contentScale=androidx.compose.ui.layout.ContentScale.Crop)
+}
+
+private fun isDemoMobile(number: String): Boolean =
+    BuildConfig.DEBUG && BuildConfig.API_BASE_URL == "https://stage.namyranservice.ir/wp-json/" && number == "09022896363"
+
+@Composable private fun LoginScreen(vm: CustomerViewModel) {
+    var showDemo by rememberSaveable { mutableStateOf(false) }
+    val context = LocalContext.current
+    BackHandler(showDemo) { showDemo = false }
+    Scaffold(containerColor=MaterialTheme.colorScheme.background) { padding ->
+        Box(Modifier.fillMaxSize().padding(padding).imePadding(),contentAlignment=Alignment.TopCenter) {
+            Column(
+                Modifier.widthIn(max=540.dp).fillMaxWidth().verticalScroll(rememberScrollState())
+                    .padding(horizontal=20.dp,vertical=20.dp),
+                verticalArrangement=Arrangement.spacedBy(14.dp)
+            ) {
+                if(showDemo) {
+                    Home(vm,demo=true)
+                    Action("بازگشت به ورود"){showDemo=false}
+                } else {
+                    LoginBrand(false)
+                    if(vm.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+                    if(vm.error.isNotBlank()) Surface(shape=RoundedCornerShape(16.dp),color=MaterialTheme.colorScheme.errorContainer) {
+                        Text(vm.error,Modifier.fillMaxWidth().padding(14.dp),color=MaterialTheme.colorScheme.onErrorContainer)
+                    }
+                    if(vm.hasSavedSession) {
+                        Panel("بازیابی حساب","در حال بررسی نشست قبلی شما هستیم.")
+                        if(!vm.busy) Action("بررسی دوباره نشست",onClick=vm::refresh)
+                    } else Surface(
+                        modifier=Modifier.fillMaxWidth(),shape=RoundedCornerShape(26.dp),
+                        color=MaterialTheme.colorScheme.surface,tonalElevation=2.dp
+                    ) {
+                        Column(Modifier.padding(18.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+                            LoginForm(vm) { showDemo=true }
+                        }
+                    }
+                    TextButton(onClick={openSupport(context)},modifier=Modifier.align(Alignment.CenterHorizontally)) {
+                        Icon(Icons.Outlined.SupportAgent,null,Modifier.size(20.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("راهنمای ورود و پشتیبانی")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable private fun LoginBrand(demo: Boolean) {
+    BrandBanner(centered=true) {
+        Surface(shape=RoundedCornerShape(20.dp),color=Color.White) {
+            androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(R.drawable.namyran_symbol),
+                "نشان نامیران سرویس",Modifier.size(58.dp).padding(7.dp))
+        }
+        Text("نامیران سرویس",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold,color=Color.White,textAlign=TextAlign.Center)
+        Text(if(demo) "پیش‌نمایش حساب مشتری" else "خانه، در دست متخصص",
+            style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.Bold,color=Color.White,textAlign=TextAlign.Center)
+        Text("تعمیرات، نصب و گارانتی لوازم خانگی",style=MaterialTheme.typography.bodyMedium,color=Color(0xFFE2F2FF),textAlign=TextAlign.Center)
+    }
+}
+
+@Composable private fun LoginForm(vm: CustomerViewModel,onDemo: () -> Unit) {
+    var phone by rememberSaveable{mutableStateOf(vm.mobile.takeIf { vm.otpSent } ?: vm.rememberedMobile)}
+    var rememberNumber by rememberSaveable{mutableStateOf(vm.rememberedMobile.isNotBlank())}
+    var code by remember{mutableStateOf("")}
+    var demoChallenge by rememberSaveable{mutableStateOf(false)}
+    var wrongDemoCode by remember{mutableStateOf(false)}
+    var listening by remember { mutableStateOf(false) }
+    var now by remember{mutableLongStateOf(System.currentTimeMillis())}
+    val listenForCode=rememberSmsCodeConsent { if(!demoChallenge && code.isBlank()) code=it }
+    LaunchedEffect(vm.resendAt){while(System.currentTimeMillis()<vm.resendAt){now=System.currentTimeMillis();kotlinx.coroutines.delay(1000)};now=System.currentTimeMillis()}
+    val codeStep=vm.otpSent || demoChallenge
+    val enabled=!vm.busy && !listening
+    Text(if(codeStep)"تأیید شماره موبایل" else "ورود به حساب مشتری",
+        style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
+    Text(
+        when {
+            demoChallenge -> "کد آزمایشی را وارد کنید."
+            vm.otpSent -> "کد پیامک‌شده به ${vm.mobile} را وارد کنید."
+            else -> "برای شروع، شماره موبایل خود را وارد کنید."
+        },
+        color=MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    if(codeStep) {
+        Field("کد چهاررقمی",code,{code=normalizedDigits(it).filter { digit -> digit in '0'..'9' }.take(4);wrongDemoCode=false},
+            enabled,KeyboardType.NumberPassword)
+        if(wrongDemoCode) Text("کد آزمایشی درست نیست.",color=MaterialTheme.colorScheme.error)
+        Action("تأیید و ورود",enabled&&code.length==4){
+            if(demoChallenge) {
+                if(isDemoMobile(phone) && code=="1111") onDemo() else wrongDemoCode=true
+            } else vm.verifyOtp(code)
+        }
+        TextButton(onClick={demoChallenge=false;code="";wrongDemoCode=false;vm.editOtpMobile()},enabled=enabled){
+            Text("ویرایش شماره موبایل")
+        }
+    } else {
+        Field("شماره موبایل",phone,{phone=normalizedDigits(it).filter { digit -> digit in '0'..'9' }.take(11)},enabled,KeyboardType.Phone)
+        Row(Modifier.fillMaxWidth().clickable(enabled=enabled){rememberNumber=!rememberNumber;if(!rememberNumber)vm.rememberMobile(false)},
+            verticalAlignment=Alignment.CenterVertically) {
+            Checkbox(rememberNumber,null,enabled=enabled)
+            Text("شماره‌ام را به خاطر بسپار",Modifier.padding(10.dp))
+        }
+    }
+    val remaining=((vm.resendAt-now+999)/1000).coerceAtLeast(0)
+    if(!demoChallenge) {
+        val label=if(remaining>0 && !isDemoMobile(phone)) "ارسال دوباره در $remaining ثانیه"
+            else if(vm.otpSent) "ارسال دوباره کد" else "دریافت کد ورود"
+        val canSend=enabled && phone.matches(Regex("09[0-9]{9}")) && (remaining==0L || isDemoMobile(phone))
+        Action(label,canSend) {
+            code=""
+            if(isDemoMobile(phone)) demoChallenge=true
+            else {
+                listening=true
+                listenForCode {
+                    vm.sendOtp(phone,rememberNumber)
+                    listening=false
+                }
+            }
         }
     }
 }
@@ -189,12 +525,23 @@ class MainActivity : ComponentActivity() {
     }
     when(vm.step){
         0->{
-            Picker("نوع خدمت",config.array("services").objects().map{it.optString("id") to it.optString("title")},item.optString("service_type"),!vm.busy){vm.changeItem("service_type",it)}
+            Text("نوع خدمت",Modifier.fillMaxWidth(),textAlign=TextAlign.Center,style=MaterialTheme.typography.titleLarge)
+            config.array("services").objects().chunked(2).forEach { row ->
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+                    row.forEach { service ->
+                        val id=service.optString("id")
+                        ServiceTile(service,!vm.busy,Modifier.weight(1f),selected=item.optString("service_type")==id) {
+                            if(item.optString("service_type")!=id) vm.changeItem("service_type",id)
+                        }
+                    }
+                    if(row.size==1) Spacer(Modifier.weight(1f))
+                }
+            }
             val categories=config.optJSONObject("categories")?:JSONObject()
             val keys=categories.keys().asSequence().toList()
             Picker("گروه دستگاه",keys.map{it to it},item.optString("category"),!vm.busy){vm.changeItem("category",it)}
             val mode=item.optString("service_type")
-            val devices=categories.array(item.optString("category")).objects().filter{d->mode in d.array("service_modes").strings()||(mode=="periodic"&&(d.optBoolean("periodic_enabled")||d.optBoolean("settings_enabled")||d.optBoolean("maintenance_enabled")))}
+            val devices=categories.array(item.optString("category")).objects().filter{d->supportsService(d,mode)}
             Picker("دستگاه",devices.map{it.optString("id") to it.optString("title")},item.optString("device"),!vm.busy){id->devices.find{it.optString("id")==id}?.let(vm::chooseDevice)}
             val device=vm.device()
             if(device!=null&&device.array("subtypes").length()>0)Picker("نوع دستگاه",device.array("subtypes").objects().map{it.optString("id") to it.optString("title")},item.optString("catalog_subtype_id"),!vm.busy){vm.changeItem("catalog_subtype_id",it)}
@@ -233,9 +580,16 @@ class MainActivity : ComponentActivity() {
             Field("شرح مشکل یا نیاز به خدمت",vm.description,{vm.description=it;vm.saveDraft()},!vm.busy,lines=4)
             ImageAttachments(vm)
             LocationButton(vm)
-            if(vm.latitude.isNotBlank())Text("موقعیت ثبت شد · دقت ${vm.accuracy.ifBlank{"نامشخص"}} متر",style=MaterialTheme.typography.bodySmall)
+            if(vm.latitude.isNotBlank()) {
+                Text("موقعیت ثبت شد · دقت ${vm.accuracy.ifBlank{"نامشخص"}} متر",style=MaterialTheme.typography.bodySmall)
+                var addressLabel by rememberSaveable { mutableStateOf("home") }
+                Picker("عنوان نشانی",listOf("home" to "خانه","work" to "محل کار","other" to "دیگر"),addressLabel,!vm.busy){addressLabel=it}
+                OutlinedButton(onClick={vm.saveRequestAddress(addressLabel)},enabled=!vm.busy&&vm.address.trim().length>=8,modifier=Modifier.fillMaxWidth()){
+                    Text("ذخیره نشانی در حساب من")
+                }
+            }
             OutlinedButton(onClick=vm::loadAddresses,enabled=!vm.busy,modifier=Modifier.fillMaxWidth()){Text("انتخاب از نشانی‌های من")}
-            vm.addresses.forEach{row->val a=try{JSONObject(row.optString("data_json"))}catch(_:Exception){JSONObject()};OutlinedButton(onClick={vm.address=a.optString("address");vm.latitude=a.optString("latitude");vm.longitude=a.optString("longitude");vm.saveDraft()},modifier=Modifier.fillMaxWidth()){Text(a.optString("address"))}}
+            vm.addresses.forEach{row->val a=try{JSONObject(row.optString("data_json"))}catch(_:Exception){JSONObject()};OutlinedButton(onClick={vm.address=a.optString("address");vm.latitude=a.optString("latitude");vm.longitude=a.optString("longitude");vm.accuracy="";vm.saveDraft()},modifier=Modifier.fillMaxWidth()){Text(a.optString("address"))}}
         }
         2->{
             Panel("زمان پیشنهادی شما","این بازه برای بررسی و هماهنگی مراجعه ثبت می‌شود؛ تأیید نهایی پس از بررسی نامیران انجام می‌شود.")

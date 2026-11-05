@@ -10,8 +10,8 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
-        versionName = "0.3.3-stage"
+        versionCode = 12
+        versionName = "0.4.4-stage"
         buildConfigField("String", "API_BASE_URL", "\"https://stage.namyranservice.ir/wp-json/\"")
         buildConfigField("boolean", "BACKEND_ENABLED", "true")
     }
@@ -32,6 +32,7 @@ dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2025.12.00")
 
     implementation(composeBom)
+    implementation("com.google.android.gms:play-services-auth-api-phone:17.4.0")
     androidTestImplementation(composeBom)
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")

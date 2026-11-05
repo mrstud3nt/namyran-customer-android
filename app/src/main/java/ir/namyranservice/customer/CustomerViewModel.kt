@@ -24,9 +24,28 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
     var busy by mutableStateOf(false); private set
     var error by mutableStateOf(""); private set
     var message by mutableStateOf(""); private set
+    val bundledCatalog = runCatching {
+        application.assets.open("stage-home-services.json").bufferedReader().use {
+            JSONObject(it.readText())
+        }
+    }.getOrElse { JSONObject() }
     var config by mutableStateOf<JSONObject?>(null); private set
     var mobile by mutableStateOf(""); private set
-    private var token = ""
+    private var token by mutableStateOf("")
+    val hasSavedSession: Boolean get() = token.isNotBlank()
+    private var sessionTtlSeconds = 0L
+    var rememberedMobile by mutableStateOf(store.read("remembered_mobile")?.optString("mobile").orEmpty())
+        private set
+
+    fun rememberMobile(enabled: Boolean, number: String = mobile) {
+        rememberedMobile = if (enabled) normalizedDigits(number).filter(Char::isDigit) else ""
+        store.write("remembered_mobile", rememberedMobile.takeIf(String::isNotBlank)?.let { JSONObject().put("mobile", it) })
+    }
+
+    private fun persistSession(number: String, credential: String, ttl: Long) {
+        store.write("session", JSONObject().put("mobile", number).put("token", credential)
+            .put("ttl", ttl).put("expires", System.currentTimeMillis() + ttl * 1000L))
+    }
     var loggedIn by mutableStateOf(false); private set
     var otpSent by mutableStateOf(false); private set
     var resendAt by mutableLongStateOf(0L); private set
@@ -41,9 +60,25 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
     var tab by mutableStateOf("home")
     var creating by mutableStateOf(false)
     var step by mutableIntStateOf(0)
-    var dark by mutableStateOf(false)
+    var dark by mutableStateOf(store.read("display")?.optBoolean("dark") == true)
+        private set
+    fun setDarkMode(enabled: Boolean) {
+        store.write("display", JSONObject().put("dark",enabled))
+        dark = enabled
+    }
+
+    fun localProfile(): JSONObject = if (loggedIn) store.read("profile_" + mobile) ?: JSONObject() else JSONObject()
+    fun saveLocalProfile(fullName: String, birthday: String, photo: String): Boolean {
+        if (!loggedIn) return false
+        return runCatching {
+            store.write("profile_" + mobile, JSONObject().put("name",fullName.trim())
+                .put("birthday",birthday.trim()).put("photo",photo))
+        }.isSuccess
+    }
     var item by mutableStateOf(JSONObject())
     var items by mutableStateOf<List<JSONObject>>(emptyList())
+    var accountName by mutableStateOf("")
+        private set
     var name by mutableStateOf("")
     var model by mutableStateOf("")
     var description by mutableStateOf("")
@@ -61,6 +96,7 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
         val saved = store.read("session")
         if (saved != null && saved.optLong("expires") > System.currentTimeMillis()) {
             mobile = saved.optString("mobile"); token = saved.optString("token")
+            sessionTtlSeconds = saved.optLong("ttl")
         }
         pending = store.read("pending")
         store.read("draft")?.takeIf { mobile.isNotBlank() && it.optString("owner_mobile")==mobile }?.let { d ->
@@ -81,7 +117,7 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
                 if(BuildConfig.DEBUG)android.util.Log.w("NamyranStage", "operation_failed:"+e.javaClass.simpleName+":"+(e.cause?.javaClass?.simpleName?:"none")+(if(e is CoreFailure)":"+e.code else ""))
                 main.post {
                 if(e is CoreFailure&&pending!=null&&NativeRules.rejectedBeforeInsert(e.code)){pending=null;store.write("pending",null);creating=true;step=0}
-                if (e is CoreFailure && e.code in setOf("nsc_customer_session_denied","nsc_session_expired","nsc_not_verified","nsc_my_requests_auth")) clearSession()
+                if (e is CoreFailure && e.code in setOf("nsc_customer_session_denied","nsc_session_expired","nsc_my_requests_auth")) clearSession()
                 error = when(e) { is CoreFailure -> e.message ?: "خطای Core"; else -> "ارتباط با Stage کامل نشد؛ اتصال اینترنت را بررسی و دوباره تلاش کنید." }
                 busy=false
             } }
@@ -90,18 +126,67 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
     fun dismissError() { error="" }
     private fun auth() = JSONObject().put("mobile",mobile).put("verification_token",token)
     private fun clearSession() {
-        token=""; loggedIn=false; requests=emptyList();addresses=emptyList();tracking=null
-        images=emptyList();if(pending==null)imageStore.clear();receiptInAccount=false;requestsLoaded=false;name="";address="";description="";city="";area="";latitude="";longitude="";accuracy="";model="";item=JSONObject();items=emptyList();terms=false;creating=false;store.write("draft",null);store.write("receipt",null);store.write("session",null);api.clearCookies()
+        tab="home"; config=null; token=""; sessionTtlSeconds=0; otpSent=false; loggedIn=false; accountName=""; requests=emptyList();addresses=emptyList();tracking=null
+        images=emptyList();if(pending==null)imageStore.clear();receiptInAccount=false;requestsLoaded=false;name="";address="";description="";city="";area="";latitude="";longitude="";accuracy="";model="";item=JSONObject();items=emptyList();terms=false;creating=false;store.write("draft",null);store.write("receipt",null);store.write("session",null);store.write("address_operation",null);api.clearCookies()
     }
     fun refresh() {
+        if (token.isBlank()) return
         launchTask {
-            val c=api.config()
-            val account = if(token.isNotBlank()) api.post("otp/session",auth()) else null
-            val rows = if(account != null) api.post("my-requests",auth()).array("requests").objects() else emptyList()
-            return@launchTask { config=c; loggedIn=account != null; requests=rows;requestsLoaded=account!=null; if(account != null && name.isBlank()) name=account.optString("customer_name") }
+            val account = try {
+                api.post("otp/session", auth().put("purpose", "customer_service"))
+            } catch (e: CoreFailure) {
+                if (e.code == "nsc_session_expired") {
+                    return@launchTask {
+                        clearSession()
+                        error = "نشست حساب پایان یافته است. برای ادامه دوباره وارد شوید."
+                    }
+                }
+                JSONObject()
+            } catch (_: java.io.IOException) {
+                JSONObject()
+            }
+            val responseMobile = normalizedDigits(account.optString("mobile")).trim()
+                .replace(Regex("^(?:\\+98|0098|98)(?=9[0-9]{9}$)"), "0")
+            val responseToken = account.optString("verification_token")
+            val matchingAccount = account.optBoolean("success") && responseMobile == mobile &&
+                account.optString("purpose", "customer_service") == "customer_service"
+            val renewedToken = responseToken.takeIf {
+                matchingAccount && (it == token || it.matches(Regex("[A-Za-z0-9]{48}")))
+            }
+            // A successful account-scoped read also proves the existing credential
+            // when Stage cannot return the optional session metadata.
+            val credentials = auth().put("verification_token", renewedToken ?: token)
+            val rows = try {
+                val response = api.post("my-requests", credentials)
+                response.optJSONArray("requests")?.takeIf { response.optBoolean("success") }?.objects()
+            } catch (e: CoreFailure) {
+                if (e.code == "nsc_my_requests_auth" && renewedToken == null) throw e
+                null
+            } catch (_: java.io.IOException) {
+                null
+            }
+            if (renewedToken == null && rows == null && !loggedIn) {
+                throw CoreFailure("session_response_invalid", "بررسی نشست کامل نشد. دوباره تلاش کنید.")
+            }
+            if (renewedToken != null && sessionTtlSeconds > 0) {
+                persistSession(mobile, renewedToken, sessionTtlSeconds)
+            }
+            val catalog = runCatching { api.config() }
+            return@launchTask {
+                if (renewedToken != null) token = renewedToken
+                catalog.getOrNull()?.let { config = it }
+                if (config == null) error = "دریافت فهرست خدمات کامل نشد. دوباره تلاش کنید."
+                loggedIn = true
+                if (rows != null) { requests = rows; requestsLoaded = true }
+                if (matchingAccount) {
+                    accountName = account.optString("customer_name")
+                    if (name.isBlank()) name = accountName
+                }
+            }
         }
     }
-    fun sendOtp(number: String) {
+    fun sendOtp(number: String, remember: Boolean = false) {
+        if (loggedIn || hasSavedSession) return
         val numberClean=normalizedDigits(number).filter { it.isDigit() }
         if(!numberClean.matches(Regex("09[0-9]{9}"))) { error="شماره موبایل معتبر وارد کنید.";return }
         if(System.currentTimeMillis()<resendAt) return
@@ -110,34 +195,100 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
             if(!r.optBoolean("success")) throw CoreFailure("otp_failed","ارسال کد تأیید نشد.")
             if(r.optBoolean("dev_mode")) throw CoreFailure("otp_dev_mode","Core در حالت کد آزمایشی است؛ ارسال واقعی پیامک تأیید نشد. تنظیم ارسال واقعی باید در Stage اصلاح شود.")
             val until=System.currentTimeMillis()+r.optInt("resend_in",90)*1000L
-            return@launchTask { mobile=numberClean;otpSent=true;resendAt=until;message=r.optString("message") }
+            return@launchTask { mobile=numberClean;rememberMobile(remember,numberClean);otpSent=true;resendAt=until;message=r.optString("message") }
         }
     }
+    fun editOtpMobile() {
+        if (busy || loggedIn || hasSavedSession) return
+        otpSent = false
+        error = ""
+        message = ""
+    }
+
     fun verifyOtp(code: String) {
+        if (loggedIn || hasSavedSession || !otpSent) return
         val normalized=normalizedDigits(code).trim()
         if(!normalized.matches(Regex("[0-9]{4}"))) { error="کد چهاررقمی را کامل وارد کنید.";return }
         launchTask {
             val r=api.post("otp/verify",JSONObject().put("mobile",mobile).put("code",normalized).put("purpose","customer_service"))
             val t=r.optString("verification_token")
             if(!r.optBoolean("success")||t.isBlank())throw CoreFailure("otp_verify_invalid","نشست معتبر دریافت نشد.")
-            val session=JSONObject().put("mobile",mobile).put("token",t).put("expires",System.currentTimeMillis()+r.getLong("verified_for")*1000)
-            store.write("session",session)
-            val rows=try { api.post("my-requests",JSONObject().put("mobile",mobile).put("verification_token",t)).array("requests").objects() } catch (_: Exception) { null }
-            return@launchTask { token=t;loggedIn=true;otpSent=false;requests=rows.orEmpty();requestsLoaded=rows!=null;message="با موفقیت وارد شدید." }
+            val ttl = r.getLong("verified_for")
+            require(ttl > 0)
+            persistSession(mobile, t, ttl)
+            return@launchTask {
+                tab = "home"
+                token = t
+                sessionTtlSeconds = ttl
+                loggedIn = true
+                otpSent = false
+                message = "با موفقیت وارد شدید."
+                main.post { refresh() }
+            }
         }
     }
     fun logout() { launchTask { api.post("otp/logout",auth()); return@launchTask {clearSession();tab="home";message="از حساب خارج شدید."} } }
     fun loadRequests() { if(!loggedIn){tab="profile";return};launchTask {val r=api.post("my-requests",auth()); return@launchTask {requests=r.array("requests").objects();requestsLoaded=true;tab="requests";receipt?.let { rc->receiptInAccount=requests.any { it.optString("tracking_code")==rc.optString("tracking_code") }}} } }
     fun loadAddresses() { if(!loggedIn)return;launchTask {val r=api.post("customer-addresses",auth().put("action","list"));return@launchTask {addresses=r.array("rows").objects()}} }
+    fun saveRequestAddress(label: String) {
+        if (!loggedIn || address.trim().length < 8 || latitude.toDoubleOrNull() == null || longitude.toDoubleOrNull() == null) {
+            error = "برای ذخیره نشانی، آدرس دقیق و موقعیت آن را وارد کنید."
+            return
+        }
+        val payload = auth().put("action", "save").put("label", label)
+            .put("address", address.trim()).put("latitude", latitude).put("longitude", longitude)
+        val existing = store.read("address_operation")
+        val signature = JSONObject(payload.toString()).apply { remove("verification_token") }.toString()
+        val operation = existing?.takeIf { it.optString("signature") == signature }?.optString("id")
+            ?: UUID.randomUUID().toString()
+        store.write("address_operation", JSONObject().put("signature", signature).put("id", operation))
+        launchTask {
+            api.post("customer-addresses", payload.put("operation_key", operation))
+            val rows = api.post("customer-addresses", auth().put("action", "list")).array("rows").objects()
+            return@launchTask {
+                store.write("address_operation", null)
+                addresses = rows
+                message = "نشانی در حساب شما ذخیره شد."
+            }
+        }
+    }
+
     fun track(code: String) { launchTask {
         val client=store.read("client")?.optString("id") ?: UUID.randomUUID().toString().also{store.write("client",JSONObject().put("id",it))}
         val r=api.post("track",JSONObject().put("tracking_code",code).put("mobile",mobile).put("client_id",client))
         return@launchTask { tracking=r;tab="tracking" }
     } }
-    fun startRequest() {
+    fun startRequest(serviceId: String? = null, category: String? = null, deviceId: String? = null) {
         if(!loggedIn){tab="profile";message="برای ثبت درخواست وارد حساب شوید.";return}
-        if(config==null){refresh();return}
-        launchTask { val current=api.config();return@launchTask {config=current;receipt=null;receiptInAccount=false;creating=true;step=0} }
+        if(pending!=null)return
+        val current = config
+        if(current == null) {
+            launchTask {
+                val fresh = api.config()
+                return@launchTask { config = fresh; openRequest(serviceId, category, deviceId, fresh) }
+            }
+        } else openRequest(serviceId, category, deviceId, current)
+    }
+
+    private fun openRequest(serviceId: String?, category: String?, deviceId: String?, catalog: JSONObject) {
+        if (serviceId != null && catalog.array("services").objects().none { it.optString("id") == serviceId }) {
+            error = "این خدمت در فهرست فعلی فعال نیست."
+            return
+        }
+        val selectedDevice = if (deviceId != null && category != null && serviceId != null) {
+            catalog.optJSONObject("categories")?.array(category)?.objects()?.firstOrNull {
+                it.optString("id") == deviceId && supportsService(it,serviceId)
+            } ?: run {
+                error = "این دستگاه برای خدمت انتخاب‌شده در فهرست فعلی فعال نیست."
+                return
+            }
+        } else null
+        receipt=null;receiptInAccount=false;creating=true;step=0
+        if (serviceId != null && item.optString("service_type") != serviceId) changeItem("service_type",serviceId)
+        if (category != null && selectedDevice != null) {
+            if(item.optString("category") != category) changeItem("category",category)
+            if(item.optString("device") != deviceId) chooseDevice(selectedDevice)
+        }
     }
     fun changeItem(key:String,value:String) {
         val next=JSONObject(item.toString())
