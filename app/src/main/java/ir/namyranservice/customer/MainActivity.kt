@@ -909,7 +909,16 @@ private fun proposedTime(date: String, slot: String): String {
         Text(r.optString("status_label"),color=Color.White)
     }
     Text(if(vm.receiptInAccount)"همین کد پیگیری در حساب شما بازخوانی و تأیید شد." else "ثبت توسط Core تأیید شد؛ برای بررسی نمایش در حساب، درخواست‌ها را به‌روزرسانی کنید.")
-    if(r.optInt("local_image_count")>0)Panel("وضعیت تصاویر",if(r.optBoolean("local_images_confirmed"))"Core ذخیره ${r.optInt("local_image_count")} تصویر را تأیید کرد." else "درخواست ثبت شده، اما ذخیره همه تصاویر تأیید نشد. با همین کد پیگیری از پشتیبانی پیگیری کنید؛ درخواست تازه ثبت نکنید.")
+    val imageCount = r.optInt("local_image_count")
+    if(imageCount > 0) {
+        val confirmed = r.optBoolean("local_images_confirmed")
+        FormCard("وضعیت تصاویر", if(confirmed) Icons.Outlined.CheckCircle else Icons.Outlined.Info) {
+            Text(
+                if(confirmed) "${persianDigits(imageCount.toString())} تصویر با موفقیت بارگذاری شد."
+                else "درخواست ثبت شد، اما بارگذاری همه تصاویر تأیید نشد. با همین کد پیگیری از پشتیبانی پیگیری کنید."
+            )
+        }
+    }
     val service=vm.config?.array("services")?.objects()?.firstOrNull{it.optString("id")==r.optString("local_service_type")}?.optString("title").orEmpty()
     val device=r.optString("local_device")
     val date=r.optString("local_proposed_date")
