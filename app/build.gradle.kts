@@ -10,8 +10,8 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         minSdk = 26
         targetSdk = 35
-        versionCode = 8
-        versionName = "0.4.0-stage"
+        versionCode = 9
+        versionName = "0.4.1-stage"
         buildConfigField("String", "API_BASE_URL", "\"https://stage.namyranservice.ir/wp-json/\"")
         buildConfigField("boolean", "BACKEND_ENABLED", "true")
     }

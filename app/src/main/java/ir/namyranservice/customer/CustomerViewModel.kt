@@ -26,7 +26,8 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
     var message by mutableStateOf(""); private set
     var config by mutableStateOf<JSONObject?>(null); private set
     var mobile by mutableStateOf(""); private set
-    private var token = ""
+    private var token by mutableStateOf("")
+    val hasSavedSession: Boolean get() = token.isNotBlank()
     private var sessionTtlSeconds = 0L
     var rememberedMobile by mutableStateOf(store.read("remembered_mobile")?.optString("mobile").orEmpty())
         private set
@@ -106,12 +107,12 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
     fun dismissError() { error="" }
     private fun auth() = JSONObject().put("mobile",mobile).put("verification_token",token)
     private fun clearSession() {
-        token=""; sessionTtlSeconds=0; otpSent=false; loggedIn=false; accountName=""; requests=emptyList();addresses=emptyList();tracking=null
+        tab="home"; config=null; token=""; sessionTtlSeconds=0; otpSent=false; loggedIn=false; accountName=""; requests=emptyList();addresses=emptyList();tracking=null
         images=emptyList();if(pending==null)imageStore.clear();receiptInAccount=false;requestsLoaded=false;name="";address="";description="";city="";area="";latitude="";longitude="";accuracy="";model="";item=JSONObject();items=emptyList();terms=false;creating=false;store.write("draft",null);store.write("receipt",null);store.write("session",null);store.write("address_operation",null);api.clearCookies()
     }
     fun refresh() {
+        if (token.isBlank()) return
         launchTask {
-            val currentConfig = api.config()
             val account = if (token.isNotBlank()) {
                 try {
                     api.post("otp/session", auth().put("purpose", "customer_service")).also {
@@ -123,19 +124,19 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
                 } catch (e: CoreFailure) {
                     if (e.code != "nsc_session_expired") throw e
                     return@launchTask {
-                        config = currentConfig
                         clearSession()
                         error = "نشست حساب پایان یافته است. برای ادامه دوباره وارد شوید."
                     }
                 }
             } else null
+            val currentConfig = runCatching { api.config() }.getOrNull()
             val rows = if (account != null) {
                 try { api.post("my-requests", auth()).array("requests").objects() }
                 catch (e: CoreFailure) { if (e.code == "nsc_my_requests_auth") throw e else null }
                 catch (_: java.io.IOException) { null }
             } else null
             return@launchTask {
-                config = currentConfig
+                if (currentConfig != null) config = currentConfig
                 loggedIn = account != null
                 if (rows != null) { requests = rows; requestsLoaded = true }
                 if (account != null) {
@@ -146,6 +147,7 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
         }
     }
     fun sendOtp(number: String, remember: Boolean = false) {
+        if (loggedIn || hasSavedSession) return
         val numberClean=normalizedDigits(number).filter { it.isDigit() }
         if(!numberClean.matches(Regex("09[0-9]{9}"))) { error="شماره موبایل معتبر وارد کنید.";return }
         if(System.currentTimeMillis()<resendAt) return
@@ -158,6 +160,7 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
         }
     }
     fun verifyOtp(code: String) {
+        if (loggedIn || hasSavedSession || !otpSent) return
         val normalized=normalizedDigits(code).trim()
         if(!normalized.matches(Regex("[0-9]{4}"))) { error="کد چهاررقمی را کامل وارد کنید.";return }
         launchTask {
@@ -167,10 +170,12 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
             val ttl = r.getLong("verified_for")
             require(ttl > 0)
             persistSession(mobile, t, ttl)
+            val currentConfig = runCatching { api.config() }.getOrNull()
             val credentials = JSONObject().put("mobile", mobile).put("verification_token", t)
             val customer = runCatching { api.post("otp/session", credentials).optString("customer_name") }.getOrDefault("")
             val rows = runCatching { api.post("my-requests", credentials).array("requests").objects() }.getOrNull()
             return@launchTask {
+                tab="home";config=currentConfig
                 token=t;sessionTtlSeconds=ttl;loggedIn=true;otpSent=false;requests=rows.orEmpty();requestsLoaded=rows!=null
                 accountName=customer
                 if(name.isBlank()) name=customer

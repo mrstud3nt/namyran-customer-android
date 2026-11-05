@@ -1,5 +1,5 @@
 """Read-only native smoke against Stage. Never sends OTP or submits a request."""
-import subprocess, sys, time, pathlib, xml.etree.ElementTree as ET, re
+import subprocess, sys, time, pathlib, xml.etree.ElementTree as ET
 out=pathlib.Path('smoke-evidence');out.mkdir(exist_ok=True)
 pkg='ir.namyranservice.customer.stage'
 def adb(*args):
@@ -11,39 +11,25 @@ def dump(name):
     return ET.fromstring(data)
 def screenshot(name):
     (out/(name+'.png')).write_bytes(adb('exec-out','screencap','-p'))
-def click(root,label):
-    node=next((n for n in root.iter('node') if n.get('text')==label or n.get('content-desc')==label),None)
-    assert node is not None, f'Native element missing: {label}'
-    x1,y1,x2,y2=map(int,re.findall(r'\d+',node.get('bounds')))
-    adb('shell','input','tap',str((x1+x2)//2),str((y1+y2)//2));time.sleep(1)
 adb('install','-r',sys.argv[1]);adb('logcat','-c')
 result=adb('shell','am','start','-W','-n',pkg+'/ir.namyranservice.customer.MainActivity').decode()
 assert 'Error:' not in result,result
+def assert_login(name):
+    root=dump(name)
+    labels={n.get('text') for n in root.iter('node')} | {n.get('content-desc') for n in root.iter('node')}
+    assert {'نامیران سرویس','شماره موبایل','دریافت کد ورود'} <= labels,'Login gate missing'
+    assert not {'خانه','حساب من','ثبت درخواست جدید','منوی حساب'} & labels,'Workspace visible before verification'
+    screenshot(name)
+
 try:
-    for attempt in range(60):
-        root=dump('home')
-        if any(n.get('text')=='ثبت درخواست جدید' for n in root.iter('node')):break
-        # Fresh emulator Wi-Fi/DNS can become ready after the app's first GET.
-        # Retry only the visible read-only catalog action; never OTP or submission.
-        retry=next((n for n in root.iter('node') if n.get('text')=='تلاش دوباره' and n.get('enabled')=='true'),None)
-        failed=any('ارتباط با Stage کامل نشد' in n.get('text','') for n in root.iter('node'))
-        if failed and attempt in (5,15,30):
-            # A tap on old coordinates can hit the new-request CTA after config arrives.
-            # Restarting this read-only screen avoids that race and cannot send an OTP.
-            adb('shell','am','force-stop',pkg)
-            adb('shell','am','start','-W','-n',pkg+'/ir.namyranservice.customer.MainActivity')
-        time.sleep(1)
-    else:raise AssertionError('Live Stage configuration did not load; inspect captured UI')
-    screenshot('home-light')
-    click(root,'تغییر حالت نمایش');screenshot('home-dark')
-    root=dump('home-dark');click(root,'حساب من');root=dump('login')
-    assert any(n.get('text')=='شماره موبایل' for n in root.iter('node')),'Native mobile input missing'
-    screenshot('login')
+    assert_login('fresh-login')
+    adb('shell','am','force-stop',pkg)
+    adb('shell','am','start','-W','-n',pkg+'/ir.namyranservice.customer.MainActivity')
+    assert_login('reopened-login')
     adb('shell','settings','put','system','accelerometer_rotation','0')
     adb('shell','settings','put','system','user_rotation','1');time.sleep(2)
-    root=dump('login-landscape');screenshot('login-landscape')
-    assert any(n.get('text')=='شماره موبایل' for n in root.iter('node')),'Login lost on rotation'
-    print('PASS: launch, real Stage metadata, light/dark, native login navigation, rotation')
+    assert_login('login-landscape')
+    print('PASS: login gate on fresh launch, restart and rotation; no OTP requested')
 finally:
     logs=adb('logcat','-d','-s','AndroidRuntime:E','NamyranStage:W').decode(errors='replace')
     (out/'android-runtime.txt').write_text(logs)
