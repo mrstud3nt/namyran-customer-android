@@ -6,6 +6,12 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.ui.semantics.Role
+import androidx.compose.runtime.saveable.rememberSaveable
+import ir.namyranservice.customer.data.array
+import ir.namyranservice.customer.data.strings
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
@@ -279,5 +285,102 @@ fun ExpressiveRequestNavigation(
             shape=RoundedCornerShape(24.dp),
             border=BorderStroke(1.dp,outline)
         ) { Text("بازگشت",fontWeight=FontWeight.Bold,style=MaterialTheme.typography.titleMedium) }
+    }
+}
+
+@Composable
+fun GuidedField(title: String, hint: String, showInitially: Boolean, field: @Composable () -> Unit) {
+    var expanded by rememberSaveable(title, showInitially) { mutableStateOf(showInitially) }
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f)) { field() }
+            IconButton(onClick = { expanded = !expanded }) {
+                Icon(Icons.Outlined.Info, "راهنمای $title",
+                    modifier = Modifier.size(19.dp), tint = MaterialTheme.colorScheme.primary)
+            }
+        }
+        if (expanded) {
+            Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
+                Text(hint, Modifier.fillMaxWidth().padding(12.dp),
+                    color = MaterialTheme.colorScheme.onSecondaryContainer, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
+
+@Composable
+fun InstallationPackages(packages: List<JSONObject>, selected: String, enabled: Boolean, onSelect: (String) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("پکیج نصب", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        packages.forEach { plan ->
+            val id = plan.optString("id")
+            val active = selected == id
+            val accent = when(plan.optString("theme")) {
+                "bronze" -> Color(0xFFCA865F)
+                "silver" -> Color(0xFF8FABC8)
+                "gold" -> Color(0xFFD2A03D)
+                else -> MaterialTheme.colorScheme.primary
+            }
+            val scheme = MaterialTheme.colorScheme
+            val shape = RoundedCornerShape(22.dp)
+            Surface(shape = shape, border = BorderStroke(if(active) 2.dp else 1.dp, accent),
+                modifier = Modifier.fillMaxWidth().selectable(active, enabled, Role.RadioButton) { onSelect(id) },
+                color = scheme.surface) {
+                Column(Modifier.background(Brush.linearGradient(listOf(accent.copy(alpha=.23f), Color.Transparent)))
+                    .padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Icon(Icons.Outlined.WorkspacePremium, null, tint = scheme.onSurface, modifier = Modifier.size(28.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(plan.optString("title"), fontWeight = FontWeight.Bold)
+                            plan.optString("badge").takeIf(String::isNotBlank)?.let { Text(it, style = MaterialTheme.typography.labelMedium) }
+                        }
+                        Icon(if(active) Icons.Outlined.CheckCircle else Icons.Outlined.RadioButtonUnchecked, null, tint = scheme.primary)
+                    }
+                    plan.optString("subtitle").takeIf(String::isNotBlank)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                    val included = plan.array("included").strings()
+                    val highlights = plan.array("highlights").strings()
+                    (if(active) included.ifEmpty { highlights } else highlights.ifEmpty { included }).forEach { Text("✓  $it", style = MaterialTheme.typography.bodySmall) }
+                    val excluded = plan.array("excluded").strings()
+                    if(active && excluded.isNotEmpty()) {
+                        Text("خارج از پکیج", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
+                        excluded.forEach { Text("•  $it", style = MaterialTheme.typography.bodySmall) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun CrystalOptions(label: String, options: List<JSONObject>, selected: List<String>, enabled: Boolean, onChange: (List<String>) -> Unit) {
+    if(options.isEmpty()) return
+    val scheme = MaterialTheme.colorScheme
+    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        Text(label, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        options.forEach { option ->
+            val id = option.optString("id")
+            val checked = id in selected
+            val shape = RoundedCornerShape(19.dp)
+            Surface(shape = shape, border = BorderStroke(1.dp, if(checked) scheme.primary else scheme.outlineVariant),
+                color = scheme.surface,
+                modifier = Modifier.fillMaxWidth().toggleable(checked, enabled, Role.Checkbox) { value ->
+                    onChange(if(value) selected+id else selected-id)
+                }) {
+                Row(Modifier.background(Brush.linearGradient(listOf(
+                    if(checked) scheme.primaryContainer else scheme.surfaceVariant.copy(alpha=.45f),
+                    scheme.surface, scheme.tertiaryContainer.copy(alpha=.23f)
+                ))).heightIn(min=64.dp).padding(13.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Icon(Icons.Outlined.AutoAwesome, null, tint = scheme.primary, modifier = Modifier.size(22.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(option.optString("title"), fontWeight = FontWeight.Medium)
+                        option.optString("price").takeIf(String::isNotBlank)?.let {
+                            Text("$it تومان", style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant)
+                        }
+                    }
+                    Checkbox(checked, onCheckedChange = null, enabled = enabled)
+                }
+            }
+        }
     }
 }

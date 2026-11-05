@@ -52,6 +52,9 @@ import ir.namyranservice.customer.design.*
 import ir.namyranservice.customer.ui.ExpressiveRequestHeader
 import ir.namyranservice.customer.ui.ExpressiveServiceTile
 import ir.namyranservice.customer.ui.ExpressivePicker
+import ir.namyranservice.customer.ui.GuidedField
+import ir.namyranservice.customer.ui.InstallationPackages
+import ir.namyranservice.customer.ui.CrystalOptions
 import ir.namyranservice.customer.ui.ExpressiveModelField
 import ir.namyranservice.customer.ui.ExpressiveAddDeviceAction
 import ir.namyranservice.customer.ui.ExpressiveRequestNavigation
@@ -541,7 +544,11 @@ private fun isDemoMobile(number: String): Boolean =
     val headings=listOf("انتخاب خدمت و دستگاه","نشانی و شرح درخواست","زمان پیشنهادی مراجعه","بازبینی و ثبت")
     ExpressiveRequestHeader(vm.step,headings[vm.step]) { vm.saveDraft();vm.creating=false }
     if(item.optString("service_type")=="warranty"){
-        Panel("خدمات گارانتی","این خدمت در مرکز گارانتی نامیران پیگیری می‌شود.")
+        BrandBanner(centered=true) {
+            Icon(Icons.Outlined.VerifiedUser,null,tint=Color.White,modifier=Modifier.size(40.dp))
+            Text("خدمات گارانتی",color=Color.White,style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.Bold)
+            Text("پیگیری گارانتی در مرکز گارانتی نامیران",color=Color(0xFFD9E9FF),textAlign=TextAlign.Center)
+        }
         Action("ورود به مرکز گارانتی Stage",!vm.busy){
             val url=config.optString("warrantyHubUrl")
             val parsed=runCatching{java.net.URI(url)}.getOrNull()
@@ -564,36 +571,65 @@ private fun isDemoMobile(number: String): Boolean =
                     if(row.size==1) Spacer(Modifier.weight(1f))
                 }
             }
-            val categories=config.optJSONObject("categories")?:JSONObject()
-            val keys=categories.keys().asSequence().toList()
-            ExpressivePicker("گروه دستگاه",keys.map{it to it},item.optString("category"),!vm.busy){vm.changeItem("category",it)}
             val mode=item.optString("service_type")
-            val devices=categories.array(item.optString("category")).objects().filter{d->supportsService(d,mode)}
-            ExpressivePicker("دستگاه",devices.map{it.optString("id") to it.optString("title")},item.optString("device"),!vm.busy){id->devices.find{it.optString("id")==id}?.let(vm::chooseDevice)}
-            val device=vm.device()
-            if(device!=null&&device.array("subtypes").length()>0)Picker("نوع دستگاه",device.array("subtypes").objects().map{it.optString("id") to it.optString("title")},item.optString("catalog_subtype_id"),!vm.busy){vm.changeItem("catalog_subtype_id",it)}
-            val brands=config.array(if(mode=="install")"installBrands" else "brands").strings()
-            ExpressivePicker("برند",brands.map{it to it},item.optString("brand"),!vm.busy){vm.changeItem("brand",it)}
-            if(NativeRules.isCustomBrand(item.optString("brand")))Field("نام برند دستگاه",item.optString("custom_brand"),{vm.changeItem("custom_brand",it)},!vm.busy)
-            ExpressiveModelField(vm.model,!vm.busy){vm.model=it;vm.saveDraft()}
-            if(vm.isTv()){
-                val tv=config.optJSONObject("tvInstall")?:JSONObject()
-                Picker("پکیج نصب",tv.array("packages").objects().map{it.optString("id") to it.optString("title")},item.optString("installation_package"),!vm.busy){vm.changeItem("installation_package",it)}
-                tv.array("packages").objects().find{it.optString("id")==item.optString("installation_package")}?.let{p->Panel(p.optString("title"),p.array("included").strings().joinToString("\n"));if(p.array("excluded").length()>0)Text(p.array("excluded").strings().joinToString("\n"),style=MaterialTheme.typography.bodySmall)}
-                Picker("سایز تلویزیون",tv.array("sizes").strings().map{it to it},item.optString("tv_size"),!vm.busy){vm.changeItem("tv_size",it)}
-                Picker("نوع نصب و براکت",tv.array("brackets").objects().map{it.optString("id") to (it.optString("title")+" · "+it.optString("price")+" تومان")},item.optString("tv_bracket"),!vm.busy){vm.changeItem("tv_bracket",it);if(it=="tabletop")vm.changeItem("tv_wall","")}
-                if(item.optString("tv_bracket")!="tabletop")Picker("نوع دیوار",tv.array("walls").strings().map{it to it},item.optString("tv_wall"),!vm.busy){vm.changeItem("tv_wall",it)}
-                CheckOptions("خدمات تکمیلی",tv.array("services").objects(),item.array("tv_services").strings(),!vm.busy){selected->vm.item=JSONObject(vm.item.toString()).put("tv_services",JSONArray(selected));vm.saveDraft()}
-            }
-            if(device!=null){
-                val extras=device.array("services").objects().filter{mode in it.optString("mode").split(',')}
-                CheckOptions("خدمات دستگاه",extras,item.optString("catalog_service_ids").split(',').filter{it.isNotBlank()},!vm.busy){ids->
-                    val versions=JSONObject();extras.filter{it.optString("id") in ids}.forEach{versions.put(it.optString("id"),it.optInt("row_version"))}
-                    vm.item=JSONObject(vm.item.toString()).put("catalog_service_ids",ids.joinToString(",")).put("catalog_service_versions",versions);vm.saveDraft()
+            val category=item.optString("category")
+            val brand=item.optString("brand")
+            val categories=config.optJSONObject("categories")?:JSONObject()
+            if(mode.isNotBlank()){
+                val keys=categories.keys().asSequence().filter { key ->
+                    categories.array(key).objects().any{supportsService(it,mode)}
+                }.toList()
+                GuidedField("گروه دستگاه","دسته کلی محصول را انتخاب کنید. برای نمونه، تلویزیون در گروه صوتی و تصویری قرار دارد.",category.isBlank()){
+                    ExpressivePicker("گروه دستگاه",keys.map{it to it},category,!vm.busy){
+                        if(it!=category) vm.changeItem("category",it)
+                    }
+                }
+                if(category in keys){
+                    val devices=categories.array(category).objects().filter{supportsService(it,mode)}
+                    GuidedField("دستگاه","نام دقیق دستگاه را از این گروه انتخاب کنید.",item.optString("device").isBlank()){
+                        ExpressivePicker("دستگاه",devices.map{it.optString("id") to it.optString("title")},item.optString("device"),!vm.busy){id->
+                            if(id!=item.optString("device")) devices.firstOrNull{it.optString("id")==id}?.let(vm::chooseDevice)
+                        }
+                    }
+                    val device=devices.firstOrNull{it.optString("id")==item.optString("device")}
+                    if(device!=null){
+                        val subtypes=device.array("subtypes").objects()
+                        val subtype=item.optString("catalog_subtype_id")
+                        if(subtypes.isNotEmpty()) GuidedField("نوع دستگاه","اگر دستگاه چند نوع دارد، نوع درج‌شده روی برچسب یا دفترچه را انتخاب کنید.",subtype.isBlank()){
+                            ExpressivePicker("نوع دستگاه",subtypes.map{it.optString("id") to it.optString("title")},subtype,!vm.busy){
+                                if(it!=subtype) vm.changeItem("catalog_subtype_id",it)
+                            }
+                        }
+                        if(subtypes.isEmpty() || subtypes.any{it.optString("id")==subtype}){
+                            val brands=config.array(if(mode=="install")"installBrands" else "brands").strings()
+                            GuidedField("برند","نام سازنده معمولاً روی بدنه، برچسب پشت دستگاه یا جعبه نوشته شده است.",brand.isBlank()){
+                                ExpressivePicker("برند",brands.map{it to it},brand,!vm.busy){
+                                    if(it!=brand) vm.changeItem("brand",it)
+                                }
+                            }
+                            if(brand in brands){
+                                val custom=NativeRules.isCustomBrand(brand)
+                                if(custom) Field("نام برند دستگاه",item.optString("custom_brand"),{vm.changeItem("custom_brand",it)},!vm.busy)
+                                if(!custom || item.optString("custom_brand").trim().isNotBlank()){
+                                    GuidedField("مدل دستگاه","کد مدل را کنار عبارت Model یا Model No روی برچسب دستگاه پیدا کنید. وارد کردن مدل اختیاری است.",vm.model.isBlank()){
+                                        ExpressiveModelField(vm.model,!vm.busy){vm.model=it;vm.saveDraft()}
+                                    }
+                                    if(vm.isTv()) TelevisionInstallation(vm,config.optJSONObject("tvInstall")?:JSONObject())
+                                    val extras=device.array("services").objects().filter{mode in it.optString("mode").split(',')}
+                                    CrystalOptions("خدمات دستگاه",extras,item.optString("catalog_service_ids").split(',').filter{it.isNotBlank()},!vm.busy){ids->
+                                        val versions=JSONObject()
+                                        extras.filter{it.optString("id") in ids}.forEach{versions.put(it.optString("id"),it.optInt("row_version"))}
+                                        vm.item=JSONObject(vm.item.toString()).put("catalog_service_ids",ids.joinToString(",")).put("catalog_service_versions",versions)
+                                        vm.saveDraft()
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
             vm.items.forEachIndexed{index,saved->Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Text("${index+1}. ${saved.optString("device")} · ${saved.optString("brand")}",Modifier.weight(1f));IconButton(onClick={vm.removeItem(index)}){Icon(Icons.Outlined.DeleteOutline,"حذف دستگاه")}}}
-            ExpressiveAddDeviceAction(!vm.busy,vm::addItem)
+            if(brand.isNotBlank()) ExpressiveAddDeviceAction(!vm.busy,vm::addItem)
         }
         1->{
             Panel("اطلاعات مشتری","شماره همراه تأییدشده · ${vm.mobile}")
@@ -808,8 +844,40 @@ private fun isDemoMobile(number: String): Boolean =
         Column(Modifier.heightIn(max=360.dp).verticalScroll(rememberScrollState())){options.filter{it.second.contains(search,true)}.forEach{(id,title)->TextButton(onClick={onChoose(id);open=false},modifier=Modifier.fillMaxWidth()){Text(title,Modifier.weight(1f));if(id==value)Icon(Icons.Outlined.Check,null)}}}
     }},confirmButton={TextButton(onClick={open=false}){Text("بستن")}})
 }
-@Composable private fun CheckOptions(label:String,options:List<JSONObject>,selected:List<String>,enabled:Boolean,onChange:(List<String>)->Unit){
-    if(options.isEmpty())return
-    Text(label,fontWeight=FontWeight.Bold)
-    options.forEach{row->val id=row.optString("id");Row(verticalAlignment=Alignment.CenterVertically){Checkbox(id in selected,{checked->onChange(if(checked)selected+id else selected-id)},enabled=enabled);Column{Text(row.optString("title"));if(row.has("price"))Text(row.optString("price")+" تومان",style=MaterialTheme.typography.labelSmall)}}}
+@Composable private fun TelevisionInstallation(vm: CustomerViewModel,tv: JSONObject){
+    val item=vm.item
+    val packages=tv.array("packages").objects()
+    val chosen=item.optString("installation_package")
+    val enabled=!vm.busy
+    GuidedField("پکیج نصب","محتویات هر پکیج و موارد خارج از آن را مقایسه کنید.",false){
+        InstallationPackages(packages,chosen,enabled){
+            if(it!=chosen) vm.changeItem("installation_package",it)
+        }
+    }
+    if(packages.none{it.optString("id")==chosen}) return
+    val size=item.optString("tv_size")
+    GuidedField("سایز تلویزیون","اندازه صفحه به اینچ روی جعبه یا مشخصات مدل درج شده است.",size.isBlank()){
+        ExpressivePicker("سایز تلویزیون",tv.array("sizes").strings().map{it to it},size,enabled){vm.changeItem("tv_size",it)}
+    }
+    if(size.isBlank()) return
+    val bracket=item.optString("tv_bracket")
+    GuidedField("نوع نصب و براکت","برای نصب روی دیوار، براکت موردنیاز را انتخاب کنید. برای نصب رومیزی گزینه پایه را بزنید.",bracket.isBlank()){
+        ExpressivePicker("نوع نصب و براکت",tv.array("brackets").objects().map{
+            it.optString("id") to listOf(it.optString("title"),it.optString("price").takeIf(String::isNotBlank)?.let{price->"$price تومان"}.orEmpty())
+                .filter(String::isNotBlank).joinToString(" · ")
+        },bracket,enabled){
+            if(it!=bracket){vm.changeItem("tv_bracket",it);vm.changeItem("tv_wall","")}
+        }
+    }
+    if(bracket.isBlank()) return
+    val wall=item.optString("tv_wall")
+    if(bracket!="tabletop") GuidedField("نوع دیوار","جنس دیوار محل نصب را انتخاب کنید.",wall.isBlank()){
+        ExpressivePicker("نوع دیوار",tv.array("walls").strings().map{it to it},wall,enabled){vm.changeItem("tv_wall",it)}
+    }
+    if(bracket=="tabletop" || wall.isNotBlank()){
+        CrystalOptions("خدمات تکمیلی",tv.array("services").objects(),item.array("tv_services").strings(),enabled){selected->
+            vm.item=JSONObject(vm.item.toString()).put("tv_services",JSONArray(selected))
+            vm.saveDraft()
+        }
+    }
 }
