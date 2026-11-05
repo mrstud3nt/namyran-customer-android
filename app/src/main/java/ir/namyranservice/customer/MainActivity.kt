@@ -12,6 +12,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -26,6 +27,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -146,55 +150,99 @@ private fun openSupport(context: Context) {
     }
 }
 
-@Composable private fun Home(vm:CustomerViewModel){
+@Composable private fun Home(vm: CustomerViewModel) {
     var query by rememberSaveable { mutableStateOf("") }
     val config = vm.config ?: return
-    val services=config.array("services").objects()
-    val results=remember(query,config) {
-        val term=query.trim().replace('ي','ی').replace('ك','ک')
-        if(term.isEmpty()) emptyList()
-        else services.filter { it.optString("title").contains(term,ignoreCase=true) }
+    val services = config.array("services").objects()
+    val term = query.trim().replace('ي','ی').replace('ك','ک')
+    val visibleServices = services.filter { service ->
+        service.optString("title").replace('ي','ی').replace('ك','ک').contains(term,ignoreCase=true)
+    }
+    val canStart = !vm.busy && vm.pending == null
+    BrandBanner {
+        Text("خدمات لوازم خانگی",color=Color(0xFF9AEAF4),style=MaterialTheme.typography.labelLarge)
+        Text("سلام، ${vm.accountName.ifBlank { "همراه نامیران" }}",color=Color.White,
+            style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.Bold)
+        Text("خدمت موردنیاز را انتخاب کنید و وضعیت آن را همین‌جا پیگیری کنید.",color=Color(0xFFD9E9FF))
+        Button(onClick={vm.startRequest()},enabled=canStart,
+            colors=ButtonDefaults.buttonColors(containerColor=Color.White,contentColor=NamyranColors.navy)) {
+            Icon(Icons.Outlined.Add,null)
+            Spacer(Modifier.width(6.dp))
+            Text("ثبت درخواست جدید")
+        }
     }
     OutlinedTextField(query,{query=it},modifier=Modifier.fillMaxWidth(),singleLine=true,
         label={Text("جستجو در نامیران سرویس")},leadingIcon={Icon(Icons.Outlined.Search,null)},
         trailingIcon={if(query.isNotEmpty())IconButton(onClick={query=""}){Icon(Icons.Outlined.Close,"پاک کردن جستجو")}},
-        shape=RoundedCornerShape(24.dp))
-    if(query.isNotBlank()) {
-        if(results.isEmpty()) Panel("خدمتی پیدا نشد","نام خدمت را جستجو کنید، مثلاً تعمیر یا نصب.")
-        results.forEach { result ->
-            OutlinedButton(onClick={vm.startRequest(result.optString("id"))},enabled=!vm.busy,modifier=Modifier.fillMaxWidth()) {
-                Text(result.optString("title"))
+        shape=RoundedCornerShape(20.dp))
+    SectionTitle(if(term.isEmpty()) "همه خدمات" else "نتایج جستجو",visibleServices.size.toString())
+    if(visibleServices.isEmpty()) {
+        if(term.isEmpty()) Panel("فعلاً خدمتی فعال نیست","برای بررسی دوباره، فهرست خدمات را به‌روزرسانی کنید.")
+        else Panel("خدمتی پیدا نشد","نام دیگری را امتحان کنید.")
+    }
+    visibleServices.chunked(2).forEach { row ->
+        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+            row.forEach { service ->
+                ServiceTile(service,canStart,Modifier.weight(1f)) { vm.startRequest(service.getString("id")) }
             }
+            if(row.size==1) Spacer(Modifier.weight(1f))
         }
     }
-    Column(Modifier.fillMaxWidth().background(Brush.linearGradient(listOf(NamyranColors.blue,NamyranColors.cyan)),RoundedCornerShape(28.dp)).padding(24.dp),verticalArrangement=Arrangement.spacedBy(14.dp)){
-        Text(if(vm.loggedIn)"سلام ${vm.accountName.takeIf{it.isNotBlank()}?:"همراه نامیران"}" else "خدمات مطمئن، خیال آسوده",color=Color.White,fontWeight=FontWeight.Bold,fontSize=24.sp)
-        Text("نصب، تعمیر و نگهداری لوازم خانگی",color=Color.White)
-        Button(onClick={vm.startRequest()},enabled=!vm.busy&&vm.pending==null,modifier=Modifier.fillMaxWidth().heightIn(min=54.dp),colors=ButtonDefaults.buttonColors(containerColor=Color.White,contentColor=NamyranColors.blue)){Text("ثبت درخواست جدید")}
-    }
-    if(vm.loggedIn){
+    if(term.isEmpty()) {
         if(vm.accountName.isBlank()) {
-            Panel("پروفایلتان را کامل کنید","نام و نام خانوادگی را هنگام ثبت درخواست وارد کنید. نشانی را می‌توانید برای درخواست‌های بعدی ذخیره کنید.")
+            Panel("تکمیل اطلاعات حساب","نام و نشانی را می‌توانید هنگام ثبت درخواست وارد کنید.")
         }
-        val active=vm.requests.filter{it.optString("status") !in listOf("completed","cancelled")}
-        SectionTitle("درخواست‌های فعال",active.size.toString())
-        if(vm.requestsLoaded&&active.isEmpty())Panel("درخواست فعالی ندارید","برای شروع، خدمت و دستگاه موردنظر را انتخاب کنید.")
-        active.take(2).forEach{RequestCard(it,vm)}
-    }else {
-        OutlinedButton(onClick={vm.tab="profile"},modifier=Modifier.fillMaxWidth().heightIn(min=52.dp),shape=RoundedCornerShape(18.dp)){
-            Icon(Icons.Outlined.PersonOutline,null);Spacer(Modifier.width(8.dp));Text("ورود به ناحیه کاربری")
+        val active = vm.requests.filter { it.optString("status") !in listOf("completed","cancelled") }
+        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically) {
+            Text("درخواست‌های فعال",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
+            TextButton(onClick=vm::loadRequests,enabled=!vm.busy){Text("همه درخواست‌ها")}
+        }
+        if(vm.requestsLoaded && active.isEmpty()) Panel("درخواست فعالی ندارید","وضعیت درخواست جدید از همین بخش قابل پیگیری است.")
+        active.take(2).forEach { RequestCard(it,vm) }
+        TextButton(onClick=vm::refresh,enabled=!vm.busy){
+            Icon(Icons.Outlined.Refresh,null)
+            Spacer(Modifier.width(6.dp))
+            Text("به‌روزرسانی خدمات")
         }
     }
-    SectionTitle("خدمات ما")
-    services.chunked(2).forEach{row->Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(12.dp)){
-        row.forEach{s->Card(onClick={vm.startRequest(s.getString("id"))},modifier=Modifier.weight(1f),shape=RoundedCornerShape(22.dp)){
-            Column(Modifier.padding(18.dp).heightIn(min=80.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
-                Icon(when(s.optString("icon")){"install"->Icons.Outlined.Handyman;"warranty"->Icons.Outlined.VerifiedUser;"periodic"->Icons.Outlined.Update;else->Icons.Outlined.Build},null,tint=MaterialTheme.colorScheme.primary)
-                Text(s.optString("title"),fontWeight=FontWeight.Bold)
+}
+
+@Composable private fun ServiceTile(service: JSONObject, enabled: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    val icon = when(service.optString("icon")) {
+        "install" -> Icons.Outlined.Handyman
+        "warranty" -> Icons.Outlined.VerifiedUser
+        "periodic" -> Icons.Outlined.Update
+        else -> Icons.Outlined.Build
+    }
+    val badge = when(service.optString("icon")) {
+        "install" -> MaterialTheme.colorScheme.secondaryContainer to MaterialTheme.colorScheme.onSecondaryContainer
+        "warranty" -> MaterialTheme.colorScheme.tertiaryContainer to MaterialTheme.colorScheme.onTertiaryContainer
+        else -> MaterialTheme.colorScheme.primaryContainer to MaterialTheme.colorScheme.onPrimaryContainer
+    }
+    OutlinedCard(onClick=onClick,enabled=enabled,modifier=modifier,shape=RoundedCornerShape(24.dp),
+        colors=CardDefaults.outlinedCardColors(containerColor=MaterialTheme.colorScheme.surface)) {
+        Column(Modifier.fillMaxWidth().heightIn(min=104.dp).padding(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
+            Surface(shape=RoundedCornerShape(14.dp),color=badge.first,contentColor=badge.second) {
+                Box(Modifier.size(42.dp),contentAlignment=Alignment.Center) { Icon(icon,null,Modifier.size(23.dp)) }
             }
-        }};if(row.size==1)Spacer(Modifier.weight(1f))
-    }}
-    TextButton(onClick={vm.refresh()},enabled=!vm.busy){Icon(Icons.Outlined.Refresh,null);Spacer(Modifier.width(6.dp));Text("به‌روزرسانی اطلاعات خدمات")}
+            Text(service.optString("title"),style=MaterialTheme.typography.titleSmall,fontWeight=FontWeight.Bold)
+        }
+    }
+}
+
+@Composable private fun BrandBanner(content: @Composable ColumnScope.() -> Unit) {
+    val shape = RoundedCornerShape(28.dp)
+    Box(Modifier.fillMaxWidth().clip(shape).background(Brush.linearGradient(
+        listOf(Color(0xFF102654),Color(0xFF1359BA),Color(0xFF087B91))))) {
+        Canvas(Modifier.matchParentSize()) {
+            val center = Offset(size.width*.07f,size.height*.12f)
+            listOf(.24f,.36f,.49f).forEach { radius ->
+                drawCircle(Color.White.copy(alpha=.12f),size.width*radius,center,style=Stroke(width=1.dp.toPx()))
+            }
+            drawCircle(Color(0xFF75E8F0).copy(alpha=.16f),size.width*.16f,center)
+        }
+        Column(Modifier.padding(20.dp),verticalArrangement=Arrangement.spacedBy(9.dp),content=content)
+    }
 }
 
 @Composable private fun Requests(vm:CustomerViewModel){
@@ -285,19 +333,17 @@ private fun isDemoMobile(number: String): Boolean =
 }
 
 @Composable private fun LoginBrand(demo: Boolean) {
-    val shape=RoundedCornerShape(28.dp)
-    Box(Modifier.fillMaxWidth().background(Brush.linearGradient(listOf(Color(0xFF102C65),Color(0xFF145CC5))),shape)) {
-        Box(Modifier.align(Alignment.TopEnd).padding(12.dp).size(96.dp)
-            .background(Color.White.copy(alpha=.08f),RoundedCornerShape(100)))
-        Column(Modifier.padding(20.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-            Surface(shape=RoundedCornerShape(15.dp),color=Color.White) {
+    BrandBanner {
+        Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)) {
+            Surface(shape=RoundedCornerShape(14.dp),color=Color.White) {
                 androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(R.drawable.namyran_symbol),
-                    "نشان نامیران سرویس",Modifier.size(48.dp).padding(5.dp))
+                    "نشان نامیران سرویس",Modifier.size(44.dp).padding(5.dp))
             }
-            Text("نامیران سرویس",style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.Bold,color=Color.White)
-            Text(if(demo)"پیش‌نمایش حساب مشتری" else "تعمیرات، نصب و گارانتی در یک‌جا",
-                style=MaterialTheme.typography.bodyMedium,color=Color(0xFFE2F2FF))
+            Text("نامیران سرویس",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold,color=Color.White)
         }
+        Text(if(demo) "پیش‌نمایش حساب مشتری" else "خانه‌ات، در دست متخصص",
+            style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.Bold,color=Color.White)
+        Text("تعمیرات، نصب و گارانتی لوازم خانگی",style=MaterialTheme.typography.bodyMedium,color=Color(0xFFE2F2FF))
     }
 }
 

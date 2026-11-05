@@ -116,29 +116,53 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
             val account = try {
                 api.post("otp/session", auth().put("purpose", "customer_service"))
             } catch (e: CoreFailure) {
-                if (e.code != "nsc_session_expired") throw e
-                return@launchTask {
-                    clearSession()
-                    error = "نشست حساب پایان یافته است. برای ادامه دوباره وارد شوید."
+                if (e.code == "nsc_session_expired") {
+                    return@launchTask {
+                        clearSession()
+                        error = "نشست حساب پایان یافته است. برای ادامه دوباره وارد شوید."
+                    }
                 }
+                JSONObject()
+            } catch (_: java.io.IOException) {
+                JSONObject()
             }
-            val verifiedMobile = normalizedDigits(account.optString("mobile")).trim()
-            val verifiedToken = account.optString("verification_token")
-            if (!account.optBoolean("success") || verifiedMobile != mobile ||
-                !verifiedToken.matches(Regex("[A-Za-z0-9]{48}"))) {
-                throw CoreFailure("session_response_invalid", "پاسخ بررسی نشست معتبر نبود. دوباره تلاش کنید.")
+            val responseMobile = normalizedDigits(account.optString("mobile")).trim()
+                .replace(Regex("^(?:\\+98|0098|98)(?=9[0-9]{9}$)"), "0")
+            val responseToken = account.optString("verification_token")
+            val matchingAccount = account.optBoolean("success") && responseMobile == mobile &&
+                account.optString("purpose", "customer_service") == "customer_service"
+            val renewedToken = responseToken.takeIf {
+                matchingAccount && (it == token || it.matches(Regex("[A-Za-z0-9]{48}")))
             }
-            if (sessionTtlSeconds > 0) persistSession(mobile, verifiedToken, sessionTtlSeconds)
-            val credentials = JSONObject().put("mobile", mobile).put("verification_token", verifiedToken)
-            val currentConfig = runCatching { api.config() }.getOrNull()
-            val rows = runCatching { api.post("my-requests", credentials).array("requests").objects() }.getOrNull()
+            // A successful account-scoped read also proves the existing credential
+            // when Stage cannot return the optional session metadata.
+            val credentials = auth().put("verification_token", renewedToken ?: token)
+            val rows = try {
+                val response = api.post("my-requests", credentials)
+                response.optJSONArray("requests")?.takeIf { response.optBoolean("success") }?.objects()
+            } catch (e: CoreFailure) {
+                if (e.code == "nsc_my_requests_auth" && renewedToken == null) throw e
+                null
+            } catch (_: java.io.IOException) {
+                null
+            }
+            if (renewedToken == null && rows == null && !loggedIn) {
+                throw CoreFailure("session_response_invalid", "بررسی نشست کامل نشد. دوباره تلاش کنید.")
+            }
+            if (renewedToken != null && sessionTtlSeconds > 0) {
+                persistSession(mobile, renewedToken, sessionTtlSeconds)
+            }
+            val catalog = runCatching { api.config() }
             return@launchTask {
-                token = verifiedToken
-                if (currentConfig != null) config = currentConfig
+                if (renewedToken != null) token = renewedToken
+                catalog.getOrNull()?.let { config = it }
+                if (config == null) error = "دریافت فهرست خدمات کامل نشد. دوباره تلاش کنید."
                 loggedIn = true
                 if (rows != null) { requests = rows; requestsLoaded = true }
-                accountName = account.optString("customer_name")
-                if (name.isBlank()) name = accountName
+                if (matchingAccount) {
+                    accountName = account.optString("customer_name")
+                    if (name.isBlank()) name = accountName
+                }
             }
         }
     }
