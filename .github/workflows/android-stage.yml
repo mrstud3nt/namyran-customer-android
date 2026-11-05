@@ -3,7 +3,7 @@ name: Namyran Customer Native Stage
 on:
   workflow_dispatch:
   pull_request:
-    branches: [main, codex/stage-core-integration]
+    branches: [main, codex/stage-core-integration, codex/customer-super-app]
     paths-ignore:
       - 'docs/**'
       - 'audit/native-session-*.enc'
