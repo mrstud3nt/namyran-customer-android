@@ -5,6 +5,7 @@ pkg='ir.namyranservice.customer.stage'
 def adb(*args):
     return subprocess.check_output(['adb',*args])
 def dump(name):
+    adb('shell','rm','-f','/sdcard/customer.xml')
     adb('shell','uiautomator','dump','/sdcard/customer.xml')
     data=adb('shell','cat','/sdcard/customer.xml')
     (out/(name+'.xml')).write_bytes(data)
@@ -15,9 +16,13 @@ adb('install','-r',sys.argv[1]);adb('logcat','-c')
 result=adb('shell','am','start','-W','-n',pkg+'/ir.namyranservice.customer.MainActivity').decode()
 assert 'Error:' not in result,result
 def assert_login(name):
-    root=dump(name)
-    labels={n.get('text') for n in root.iter('node')} | {n.get('content-desc') for n in root.iter('node')}
-    assert 'نامیران سرویس' in labels,'Login header missing'
+    for attempt in range(4):
+        root=dump(name)
+        labels={n.get('text') for n in root.iter('node')} | {n.get('content-desc') for n in root.iter('node')}
+        if 'نامیران سرویس' in labels:
+            break
+        time.sleep(1)
+    assert 'نامیران سرویس' in labels, f'Login header missing on {name}'
     screenshot(name)
     controls={'شماره موبایل','دریافت کد ورود'}
     if not controls <= labels:

@@ -390,6 +390,10 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
             if(!result.optBoolean("success")||result.optInt("request_id")<=0||result.optString("tracking_code").isBlank())throw CoreFailure("submission_invalid","پاسخ ثبت درخواست معتبر نیست. همان درخواست را دوباره بررسی کنید.")
             // Persist the receipt before the read-back, so a list/network failure never loses the tracking code.
             if(!filesConfirmed)result.put("local_unconfirmed_images",JSONArray(selected))
+            result.put("local_service_type",saved.optString("service_type"))
+                .put("local_device",saved.optString("device"))
+                .put("local_proposed_date",saved.optString("visit_date"))
+                .put("local_proposed_slot",saved.optString("visit_time"))
             store.write("receipt",result);store.write("pending",null);store.write("draft",null)
             if(filesConfirmed)selected.forEach(imageStore::remove)
             var rows:List<JSONObject>?=null
