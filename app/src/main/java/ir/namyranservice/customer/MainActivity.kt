@@ -234,55 +234,132 @@ private fun openSupport(context: Context) {
         OutlinedButton(onClick=vm::logout,enabled=!vm.busy,modifier=Modifier.fillMaxWidth()){Text("خروج از حساب")}
 }
 
+private fun isDemoMobile(number: String): Boolean =
+    BuildConfig.DEBUG && BuildConfig.API_BASE_URL == "https://stage.namyranservice.ir/wp-json/" && number == "09022896363"
+
 @Composable private fun LoginScreen(vm: CustomerViewModel) {
+    var showDemo by rememberSaveable { mutableStateOf(false) }
+    val context = LocalContext.current
+    BackHandler(showDemo) { showDemo = false }
     Scaffold(containerColor=MaterialTheme.colorScheme.background) { padding ->
-        Column(
-            Modifier.fillMaxSize().padding(padding).imePadding().verticalScroll(rememberScrollState())
-                .padding(horizontal=24.dp,vertical=24.dp),
-            verticalArrangement=Arrangement.spacedBy(18.dp)
-        ) {
-            Surface(shape=RoundedCornerShape(28.dp),color=MaterialTheme.colorScheme.primaryContainer,modifier=Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(22.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                    Surface(shape=RoundedCornerShape(16.dp),color=Color.White) {
-                        androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(R.drawable.namyran_symbol),
-                            "نشان نامیران سرویس",Modifier.size(64.dp).padding(6.dp))
+        Box(Modifier.fillMaxSize().padding(padding).imePadding(),contentAlignment=Alignment.TopCenter) {
+            Column(
+                Modifier.widthIn(max=540.dp).fillMaxWidth().verticalScroll(rememberScrollState())
+                    .padding(horizontal=20.dp,vertical=20.dp),
+                verticalArrangement=Arrangement.spacedBy(14.dp)
+            ) {
+                LoginBrand(showDemo)
+                if(showDemo) {
+                    Panel("خانه آزمایشی","ورود آزمایشی انجام شد. این محیط برای بررسی ظاهر برنامه است.")
+                    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                        listOf("تعمیرات","نصب","گارانتی").forEach { title ->
+                            SuggestionChip(onClick={},label={Text(title)},enabled=false,modifier=Modifier.weight(1f))
+                        }
                     }
-                    Text("نامیران سرویس",style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.Bold)
-                    Text("به حساب مشتری خوش آمدید",style=MaterialTheme.typography.bodyLarge)
+                    Action("بازگشت به ورود"){showDemo=false}
+                } else {
+                    if(vm.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+                    if(vm.error.isNotBlank()) Surface(shape=RoundedCornerShape(16.dp),color=MaterialTheme.colorScheme.errorContainer) {
+                        Text(vm.error,Modifier.fillMaxWidth().padding(14.dp),color=MaterialTheme.colorScheme.onErrorContainer)
+                    }
+                    if(vm.hasSavedSession) {
+                        Panel("بازیابی حساب","در حال بررسی نشست قبلی شما هستیم.")
+                        if(!vm.busy) Action("بررسی دوباره نشست",onClick=vm::refresh)
+                    } else Surface(
+                        modifier=Modifier.fillMaxWidth(),shape=RoundedCornerShape(26.dp),
+                        color=MaterialTheme.colorScheme.surface,tonalElevation=2.dp
+                    ) {
+                        Column(Modifier.padding(18.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+                            LoginForm(vm) { showDemo=true }
+                        }
+                    }
+                    TextButton(onClick={openSupport(context)},modifier=Modifier.align(Alignment.CenterHorizontally)) {
+                        Icon(Icons.Outlined.SupportAgent,null,Modifier.size(20.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("راهنمای ورود و پشتیبانی")
+                    }
                 }
             }
-            if(vm.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-            if(vm.error.isNotBlank()) Text(vm.error,color=MaterialTheme.colorScheme.error)
-            if(vm.message.isNotBlank()) Text(vm.message,color=MaterialTheme.colorScheme.primary)
-            if(vm.hasSavedSession) {
-                Panel("بازیابی حساب","در حال بررسی نشست قبلی شما هستیم.")
-                if(!vm.busy) Action("بررسی دوباره نشست",onClick=vm::refresh)
-            } else LoginForm(vm)
         }
     }
 }
 
-@Composable private fun LoginForm(vm: CustomerViewModel) {
-    var phone by rememberSaveable{mutableStateOf(vm.rememberedMobile)}
+@Composable private fun LoginBrand(demo: Boolean) {
+    val shape=RoundedCornerShape(28.dp)
+    Box(Modifier.fillMaxWidth().background(Brush.linearGradient(listOf(Color(0xFF102C65),Color(0xFF145CC5))),shape)) {
+        Box(Modifier.align(Alignment.TopEnd).padding(12.dp).size(96.dp)
+            .background(Color.White.copy(alpha=.08f),RoundedCornerShape(100)))
+        Column(Modifier.padding(20.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+            Surface(shape=RoundedCornerShape(15.dp),color=Color.White) {
+                androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(R.drawable.namyran_symbol),
+                    "نشان نامیران سرویس",Modifier.size(48.dp).padding(5.dp))
+            }
+            Text("نامیران سرویس",style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.Bold,color=Color.White)
+            Text(if(demo)"پیش‌نمایش حساب مشتری" else "تعمیرات، نصب و گارانتی در یک‌جا",
+                style=MaterialTheme.typography.bodyMedium,color=Color(0xFFE2F2FF))
+        }
+    }
+}
+
+@Composable private fun LoginForm(vm: CustomerViewModel,onDemo: () -> Unit) {
+    var phone by rememberSaveable{mutableStateOf(vm.mobile.takeIf { vm.otpSent } ?: vm.rememberedMobile)}
     var rememberNumber by rememberSaveable{mutableStateOf(vm.rememberedMobile.isNotBlank())}
     var code by remember{mutableStateOf("")}
+    var demoChallenge by rememberSaveable{mutableStateOf(false)}
+    var wrongDemoCode by remember{mutableStateOf(false)}
+    var listening by remember { mutableStateOf(false) }
     var now by remember{mutableLongStateOf(System.currentTimeMillis())}
+    val listenForCode=rememberSmsCodeConsent { if(!demoChallenge && code.isBlank()) code=it }
     LaunchedEffect(vm.resendAt){while(System.currentTimeMillis()<vm.resendAt){now=System.currentTimeMillis();kotlinx.coroutines.delay(1000)};now=System.currentTimeMillis()}
-        Panel("ورود با شماره موبایل","کد ورود به شماره شما پیامک می‌شود.")
-        Field("شماره موبایل",phone,{phone=it},!vm.busy&&!vm.otpSent,KeyboardType.Phone)
-        Row(Modifier.fillMaxWidth().clickable(enabled=!vm.busy){rememberNumber=!rememberNumber;if(!rememberNumber)vm.rememberMobile(false)},verticalAlignment=Alignment.CenterVertically) {
-            Checkbox(rememberNumber,null,enabled=!vm.busy)
-            Text("شماره‌ام را به خاطر بسپار",Modifier.padding(12.dp))
+    val codeStep=vm.otpSent || demoChallenge
+    val enabled=!vm.busy && !listening
+    Text(if(codeStep)"تأیید شماره موبایل" else "ورود به حساب مشتری",
+        style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
+    Text(
+        when {
+            demoChallenge -> "کد آزمایشی را وارد کنید."
+            vm.otpSent -> "کد پیامک‌شده به ${vm.mobile} را وارد کنید."
+            else -> "برای شروع، شماره موبایل خود را وارد کنید."
+        },
+        color=MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    if(codeStep) {
+        Field("کد چهاررقمی",code,{code=normalizedDigits(it).filter { digit -> digit in '0'..'9' }.take(4);wrongDemoCode=false},
+            enabled,KeyboardType.NumberPassword)
+        if(wrongDemoCode) Text("کد آزمایشی درست نیست.",color=MaterialTheme.colorScheme.error)
+        Action("تأیید و ورود",enabled&&code.length==4){
+            if(demoChallenge) {
+                if(isDemoMobile(phone) && code=="1111") onDemo() else wrongDemoCode=true
+            } else vm.verifyOtp(code)
         }
-        if(vm.otpSent){
-            Text("کد ارسال‌شده به ${vm.mobile} را وارد کنید.")
-            Field("کد چهاررقمی",code,{code=normalizedDigits(it).filter(Char::isDigit).take(4)},!vm.busy,KeyboardType.NumberPassword)
-            Action("تأیید و ورود",!vm.busy&&code.length==4){vm.verifyOtp(code)}
+        TextButton(onClick={demoChallenge=false;code="";wrongDemoCode=false;vm.editOtpMobile()},enabled=enabled){
+            Text("ویرایش شماره موبایل")
         }
-        val remaining=((vm.resendAt-now+999)/1000).coerceAtLeast(0)
-        OutlinedButton(onClick={vm.sendOtp(phone,rememberNumber)},enabled=!vm.busy&&remaining==0L,modifier=Modifier.fillMaxWidth().heightIn(min=54.dp)){
-            Text(if(remaining>0)"ارسال دوباره در $remaining ثانیه" else if(vm.otpSent)"ارسال دوباره کد" else "دریافت کد ورود")
+    } else {
+        Field("شماره موبایل",phone,{phone=normalizedDigits(it).filter { digit -> digit in '0'..'9' }.take(11)},enabled,KeyboardType.Phone)
+        Row(Modifier.fillMaxWidth().clickable(enabled=enabled){rememberNumber=!rememberNumber;if(!rememberNumber)vm.rememberMobile(false)},
+            verticalAlignment=Alignment.CenterVertically) {
+            Checkbox(rememberNumber,null,enabled=enabled)
+            Text("شماره‌ام را به خاطر بسپار",Modifier.padding(10.dp))
         }
+    }
+    val remaining=((vm.resendAt-now+999)/1000).coerceAtLeast(0)
+    if(!demoChallenge) {
+        val label=if(remaining>0 && !isDemoMobile(phone)) "ارسال دوباره در $remaining ثانیه"
+            else if(vm.otpSent) "ارسال دوباره کد" else "دریافت کد ورود"
+        val canSend=enabled && phone.matches(Regex("09[0-9]{9}")) && (remaining==0L || isDemoMobile(phone))
+        Action(label,canSend) {
+            code=""
+            if(isDemoMobile(phone)) demoChallenge=true
+            else {
+                listening=true
+                listenForCode {
+                    vm.sendOtp(phone,rememberNumber)
+                    listening=false
+                }
+            }
+        }
+    }
 }
 
 @Composable private fun RequestFlow(vm:CustomerViewModel){
