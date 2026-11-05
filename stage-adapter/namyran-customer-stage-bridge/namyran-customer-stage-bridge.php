@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: Namyran Customer Stage Bridge
- * Description: Read-only native customer metadata from the installed Core; Stage only.
- * Version: 0.1.0
+ * Description: Native customer metadata and verified email from the installed Core; Stage only.
+ * Version: 0.2.0
  */
 if (!defined('ABSPATH')) exit;
 final class Namyran_Customer_Stage_Bridge {
@@ -55,3 +55,13 @@ final class Namyran_Customer_Stage_Bridge {
     }
 }
 add_action('rest_api_init',array('Namyran_Customer_Stage_Bridge','register'));
+require_once __DIR__ . '/customer-email.php';
+add_action('rest_api_init', static function () {
+    foreach (array('profile-email'=>'profile','receipt-email'=>'receipt') as $path=>$method) {
+        register_rest_route('namyran-customer/v1','/'.$path,array(
+            'methods'=>'POST',
+            'callback'=>array(Namyran_Stage_Customer_Email::class,$method),
+            'permission_callback'=>array(Namyran_Customer_Stage_Bridge::class,'permission'),
+        ));
+    }
+});

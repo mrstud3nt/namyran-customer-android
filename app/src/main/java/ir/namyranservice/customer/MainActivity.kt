@@ -52,6 +52,7 @@ import ir.namyranservice.customer.design.*
 import ir.namyranservice.customer.ui.ExpressiveRequestHeader
 import ir.namyranservice.customer.ui.ExpressiveServiceTile
 import ir.namyranservice.customer.ui.ExpressivePicker
+import ir.namyranservice.customer.ui.persianDigits
 import ir.namyranservice.customer.ui.GuidedField
 import ir.namyranservice.customer.ui.InstallationPackages
 import ir.namyranservice.customer.ui.CrystalOptions
@@ -190,11 +191,18 @@ private fun openSupport(context: Context) {
         Text(if(demo) "خانه آزمایشی" else "سلام، ${vm.accountName.ifBlank { "همراه نامیران" }}",color=Color.White,
             style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.Bold)
         Text("خدمت موردنیاز را انتخاب کنید و وضعیت آن را همین‌جا پیگیری کنید.",color=Color(0xFFD9E9FF))
-        Button(onClick={if(demo) demoService="ثبت درخواست جدید" else vm.startRequest()},enabled=canStart,
+        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+        Button(onClick={if(demo) demoService="ثبت درخواست جدید" else vm.startRequest()},enabled=canStart,modifier=Modifier.weight(1f),
             colors=ButtonDefaults.buttonColors(containerColor=Color.White,contentColor=NamyranColors.navy)) {
             Icon(Icons.Outlined.Add,null)
             Spacer(Modifier.width(6.dp))
-            Text("ثبت درخواست جدید")
+            Text("ثبت درخواست جدید",textAlign=TextAlign.Center)
+        }
+        OutlinedButton(onClick={if(demo) demoService="پیگیری درخواست" else {vm.tab="requests";vm.loadRequests()}},
+            enabled=demo||!vm.busy,modifier=Modifier.weight(1f),
+            colors=ButtonDefaults.outlinedButtonColors(contentColor=Color.White)) {
+            Text("پیگیری درخواست",textAlign=TextAlign.Center)
+        }
         }
     }
     OutlinedTextField(query,{query=it},modifier=Modifier.fillMaxWidth(),singleLine=true,
@@ -241,7 +249,7 @@ private fun openSupport(context: Context) {
         }
         if(vm.requestsLoaded && active.isEmpty()) Panel("درخواست فعالی ندارید","وضعیت درخواست جدید از همین بخش قابل پیگیری است.")
         active.take(2).forEach { RequestCard(it,vm) }
-        TextButton(onClick=vm::refresh,enabled=!vm.busy){
+        TextButton(onClick={vm.refreshCatalog(force=true)},enabled=!vm.busy){
             Icon(Icons.Outlined.Refresh,null)
             Spacer(Modifier.width(6.dp))
             Text("به‌روزرسانی خدمات")
@@ -381,6 +389,7 @@ private fun openSupport(context: Context) {
         TextButton(onClick={editing=false}){Text("انصراف")}
     }
     if(feedback.isNotBlank()) Text(feedback,color=MaterialTheme.colorScheme.primary)
+    EmailSettings(vm)
     SectionTitle("نشانی‌ها و درخواست‌ها")
     Action("مشاهده درخواست‌های من",!vm.busy,vm::loadRequests)
     OutlinedButton(onClick=vm::loadAddresses,enabled=!vm.busy,modifier=Modifier.fillMaxWidth()){Text("دریافت نشانی‌های ذخیره‌شده")}
@@ -394,6 +403,33 @@ private fun openSupport(context: Context) {
     }
     OutlinedButton(onClick={openSupport(context)},modifier=Modifier.fillMaxWidth()){Text("ارتباط با پشتیبانی")}
     OutlinedButton(onClick=vm::logout,enabled=!vm.busy,modifier=Modifier.fillMaxWidth()){Text("خروج از حساب")}
+}
+
+@Composable private fun EmailSettings(vm: CustomerViewModel) {
+    var email by rememberSaveable(vm.mobile){mutableStateOf("")}
+    SectionTitle("ایمیل حساب")
+    FormCard("تأیید ایمیل",Icons.Outlined.Email) {
+        if(vm.verifiedEmail.isNotBlank()) Text("تأیید شده · "+vm.verifiedEmail)
+        if(vm.pendingEmail.isNotBlank()) Text("در انتظار تأیید · "+vm.pendingEmail)
+        Field("نشانی ایمیل",email,{email=it.take(254)},!vm.busy,KeyboardType.Email)
+        Action("ارسال لینک تأیید",!vm.busy && android.util.Patterns.EMAIL_ADDRESS.matcher(email.trim()).matches()){
+            vm.refreshEmail(email)
+        }
+        TextButton(onClick={vm.refreshEmail()},enabled=!vm.busy){Text("بررسی وضعیت تأیید")}
+        Text("لینک داخل ایمیل را باز کنید و سپس وضعیت را به‌روز کنید.",style=MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable private fun FormCard(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector, content: @Composable ColumnScope.()->Unit) {
+    OutlinedCard(Modifier.fillMaxWidth(),shape=RoundedCornerShape(22.dp)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                Icon(icon,null,tint=MaterialTheme.colorScheme.primary)
+                Text(title,fontWeight=FontWeight.Bold,style=MaterialTheme.typography.titleMedium)
+            }
+            content()
+        }
+    }
 }
 
 @Composable private fun ProfilePhoto(name: String, photo: String) {
@@ -614,7 +650,15 @@ private fun isDemoMobile(number: String): Boolean =
                                     GuidedField("مدل دستگاه","کد مدل را کنار عبارت Model یا Model No روی برچسب دستگاه پیدا کنید. وارد کردن مدل اختیاری است.",vm.model.isBlank()){
                                         ExpressiveModelField(vm.model,!vm.busy){vm.model=it;vm.saveDraft()}
                                     }
-                                    if(vm.isTv()) TelevisionInstallation(vm,config.optJSONObject("tvInstall")?:JSONObject())
+                                    if(vm.isTv()) {
+                                        var skipModel by rememberSaveable(mode,category,item.optString("device"),brand){mutableStateOf(false)}
+                                        if(vm.model.isBlank() && !skipModel) {
+                                            TextButton(onClick={skipModel=true},enabled=!vm.busy){Text("مدل در لیست نیست")}
+                                        }
+                                        if(vm.model.isNotBlank() || skipModel || item.optString("tv_size").isNotBlank()) {
+                                            TelevisionInstallation(vm,config.optJSONObject("tvInstall")?:JSONObject())
+                                        }
+                                    }
                                     val extras=device.array("services").objects().filter{mode in it.optString("mode").split(',')}
                                     CrystalOptions("خدمات دستگاه",extras,item.optString("catalog_service_ids").split(',').filter{it.isNotBlank()},!vm.busy){ids->
                                         val versions=JSONObject()
@@ -633,7 +677,7 @@ private fun isDemoMobile(number: String): Boolean =
         }
         1->{
             Panel("اطلاعات مشتری","شماره همراه تأییدشده · ${vm.mobile}")
-            Field("نام و نام خانوادگی",vm.name,{vm.name=it;vm.saveDraft()},!vm.busy)
+            FormCard("محل خدمت",Icons.Outlined.Place) {
             val cities=config.optJSONObject("customerMobile")?.array("cities")?.objects().orEmpty()
             if(cities.isEmpty())Panel("شهر فعالی دریافت نشد","محدوده خدمات باید توسط مدیریت Core فعال شود.")
             ExpressivePicker("شهر محل خدمت",cities.map{it.optString("id") to it.optString("title")},vm.city,!vm.busy){if(vm.city!=it){vm.city=it;vm.area="";vm.saveDraft()}}
@@ -641,8 +685,6 @@ private fun isDemoMobile(number: String): Boolean =
             val areas=groups.flatMap{g->g.array("areas").objects().map{a->a.optString("title") to (g.optString("title")+" · "+a.optString("title"))}}
             if(areas.isNotEmpty())ExpressivePicker("محله / محدوده",areas,vm.area,!vm.busy){vm.area=it;vm.saveDraft()}
             Field("نشانی دقیق، پلاک و واحد",vm.address,{vm.address=it;vm.saveDraft()},!vm.busy,lines=3)
-            Field("شرح مشکل یا نیاز به خدمت",vm.description,{vm.description=it;vm.saveDraft()},!vm.busy,lines=4)
-            ImageAttachments(vm)
             LocationButton(vm)
             if(vm.latitude.isNotBlank()) {
                 Text("موقعیت ثبت شد · دقت ${vm.accuracy.ifBlank{"نامشخص"}} متر",style=MaterialTheme.typography.bodySmall)
@@ -654,6 +696,12 @@ private fun isDemoMobile(number: String): Boolean =
             }
             OutlinedButton(onClick=vm::loadAddresses,enabled=!vm.busy,modifier=Modifier.fillMaxWidth()){Text("انتخاب از نشانی‌های من")}
             vm.addresses.forEach{row->val a=try{JSONObject(row.optString("data_json"))}catch(_:Exception){JSONObject()};OutlinedButton(onClick={vm.address=a.optString("address");vm.latitude=a.optString("latitude");vm.longitude=a.optString("longitude");vm.accuracy="";vm.saveDraft()},modifier=Modifier.fillMaxWidth()){Text(a.optString("address"))}}
+            }
+            FormCard("اطلاعات و شرح درخواست",Icons.Outlined.Edit) {
+                Field("نام و نام خانوادگی",vm.name,{vm.name=it;vm.saveDraft()},!vm.busy)
+                Field("شرح مشکل یا نیاز به خدمت",vm.description,{vm.description=it;vm.saveDraft()},!vm.busy,lines=4)
+            }
+            FormCard("پیوست‌ها",Icons.Outlined.AddPhotoAlternate){ ImageAttachments(vm) }
         }
         2->{
             Panel("زمان پیشنهادی شما","این بازه برای بررسی و هماهنگی مراجعه ثبت می‌شود؛ تأیید نهایی پس از بررسی نامیران انجام می‌شود.")
@@ -661,11 +709,23 @@ private fun isDemoMobile(number: String): Boolean =
             if(vm.busy && vm.schedule==null) LinearProgressIndicator(Modifier.fillMaxWidth())
             if(!vm.busy && vm.date.isNotBlank() && vm.schedule==null)
                 OutlinedButton(onClick={vm.getSchedule(vm.date)}){Text("دریافت دوباره زمان‌ها")}
-            vm.schedule?.let{s->Text(s.optString("dateJalali"),fontWeight=FontWeight.Bold);s.array("slots").objects().forEach{slot->
-                val value=slot.optString("value");OutlinedButton(onClick={vm.slot=value;vm.saveDraft()},enabled=slot.optBoolean("available")&&!vm.busy,modifier=Modifier.fillMaxWidth(),colors=ButtonDefaults.outlinedButtonColors(containerColor=if(vm.slot==value)MaterialTheme.colorScheme.primaryContainer else Color.Transparent)){
-                    Text(value+if(slot.optBoolean("available"))"" else " · قابل انتخاب نیست")
+            vm.schedule?.let { schedule ->
+                FormCard("بازه مراجعه",Icons.Outlined.AccessTime) {
+                    schedule.array("slots").objects().forEach { slot ->
+                        val value=slot.optString("value")
+                        val selected=vm.slot==value
+                        OutlinedCard(onClick={vm.slot=value;vm.saveDraft()},enabled=slot.optBoolean("available")&&!vm.busy,
+                            modifier=Modifier.fillMaxWidth(),colors=CardDefaults.outlinedCardColors(
+                                containerColor=if(selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface)){
+                            Row(Modifier.fillMaxWidth().padding(14.dp),horizontalArrangement=Arrangement.spacedBy(10.dp),verticalAlignment=Alignment.CenterVertically){
+                                Icon(if(selected) Icons.Outlined.CheckCircle else Icons.Outlined.Schedule,null,tint=MaterialTheme.colorScheme.primary)
+                                Text(persianDigits(value)+if(slot.optBoolean("available"))"" else " · قابل انتخاب نیست")
+                            }
+                        }
+                    }
+                    if(vm.slot.isNotBlank()) Text("پیشنهادی · در انتظار تأیید",color=MaterialTheme.colorScheme.primary)
                 }
-            }}
+            }
         }
         3->{
             SectionTitle("بازبینی درخواست")
@@ -683,7 +743,10 @@ private fun isDemoMobile(number: String): Boolean =
                     device.optString("brand"),device.optString("device_model"),packageName,device.optString("tv_size"),
                     (extraTitles+tvTitles).filter(String::isNotBlank).joinToString("، ")).filter(String::isNotBlank).joinToString(" · ")
             }
-            ReviewSection("خدمت و دستگاه",devices.joinToString("\n"),!vm.busy){vm.step=0}
+            BrandBanner {
+                Text("${vm.name} عزیز، درخواست شما برای موارد زیر آماده ثبت است.",color=Color.White,fontWeight=FontWeight.Bold)
+            }
+            ReviewSection("خدمت و دستگاه",devices.joinToString("\n\n"),!vm.busy){vm.step=0}
             val city=config.optJSONObject("customerMobile")?.array("cities")?.objects()
                 ?.firstOrNull{it.optString("id")==vm.city}?.optString("title").orEmpty()
             val place=listOf(city,vm.area,vm.address).filter(String::isNotBlank).joinToString("، ")
@@ -691,12 +754,21 @@ private fun isDemoMobile(number: String): Boolean =
             ReviewSection("اطلاعات مشتری و نشانی",listOf(vm.name,vm.mobile,place,location,vm.description)
                 .filter(String::isNotBlank).joinToString("\n"),!vm.busy){vm.step=1}
             ImageAttachments(vm,review=true)
-            ReviewSection("زمان پیشنهادی",(vm.schedule?.optString("dateJalali")?:vm.date)+" · "+vm.slot,!vm.busy){vm.step=2}
+            ReviewSection("زمان پیشنهادی",proposedTime(vm.date,vm.slot),!vm.busy){vm.step=2}
             Row(verticalAlignment=Alignment.CenterVertically){Checkbox(vm.terms,{vm.terms=it},enabled=!vm.busy);Text("صحت اطلاعات و ثبت زمان پیشنهادی برای بررسی و هماهنگی را می‌پذیرم.",style=MaterialTheme.typography.bodyMedium)}
             Action("ثبت نهایی درخواست",!vm.busy&&vm.terms,vm::submit)
         }
     }
-    if(vm.step<3)ExpressiveRequestNavigation(!vm.busy,vm::next) { if(vm.step>0)vm.step-- else vm.creating=false;vm.saveDraft() }
+    var confirmTime by rememberSaveable { mutableStateOf(false) }
+    val availableTime=vm.schedule?.optString("date")==vm.date &&
+        vm.schedule?.array("slots")?.objects()?.any{it.optBoolean("available")&&it.optString("value")==vm.slot}==true
+    if(vm.step==2 && confirmTime) AlertDialog(onDismissRequest={confirmTime=false},
+        icon={Icon(Icons.Outlined.EventAvailable,null)},
+        title={Text("تاریخ و ساعت را تأیید می‌کنید؟")},
+        text={Text(proposedTime(vm.date,vm.slot)+"\nاین زمان برای هماهنگی ثبت می‌شود.")},
+        confirmButton={TextButton(onClick={confirmTime=false;vm.next()},enabled=availableTime&&!vm.busy){Text("تأیید و ادامه")}},
+        dismissButton={TextButton(onClick={confirmTime=false}){Text("تغییر تاریخ یا ساعت")}})
+    if(vm.step<3)ExpressiveRequestNavigation(!vm.busy&&(vm.step!=2 || availableTime),{if(vm.step==2)confirmTime=true else vm.next()}) { if(vm.step>0)vm.step-- else vm.creating=false;vm.saveDraft() }
     else OutlinedButton(onClick={if(vm.step>0)vm.step-- else vm.creating=false;vm.saveDraft()},enabled=!vm.busy,modifier=Modifier.fillMaxWidth()){Text("بازگشت")}
 }
 
@@ -704,6 +776,8 @@ private fun isDemoMobile(number: String): Boolean =
     OutlinedCard(Modifier.fillMaxWidth(),shape=RoundedCornerShape(20.dp)) {
         Column(Modifier.fillMaxWidth().padding(16.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment=Alignment.CenterVertically) {
+                Icon(when(title){"زمان پیشنهادی"->Icons.Outlined.Event;"اطلاعات مشتری و نشانی"->Icons.Outlined.PersonOutline;else->Icons.Outlined.Build},null,tint=MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(8.dp))
                 Text(title,Modifier.weight(1f),fontWeight=FontWeight.Bold)
                 TextButton(onClick=edit,enabled=enabled){Text("ویرایش")}
             }
@@ -712,9 +786,19 @@ private fun isDemoMobile(number: String): Boolean =
     }
 }
 
+private fun proposedTime(date: String, slot: String): String {
+    val day = runCatching {
+        val formatter = SimpleDateFormat("EEEE d MMMM y", ULocale("fa_IR@calendar=persian"))
+        formatter.timeZone = TimeZone.getTimeZone("UTC")
+        formatter.format(Date(LocalDate.parse(date).toEpochDay()*86_400_000L))
+    }.getOrDefault(date)
+    return persianDigits(if(slot.isBlank()) day else "$day، از ساعت $slot")
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable private fun PersianVisitDate(serverNow: String, selected: String, enabled: Boolean, onSelect: (String) -> Unit) {
-    val today=runCatching{LocalDate.parse(serverNow.take(10))}.getOrNull()
+    val deviceToday=LocalDate.now(java.time.ZoneId.of("Asia/Tehran"))
+    val today=runCatching{LocalDate.parse(serverNow.take(10))}.getOrNull()?.coerceAtLeast(deviceToday) ?: deviceToday
     var open by rememberSaveable{mutableStateOf(false)}
     val selectedDay=runCatching{LocalDate.parse(selected)}.getOrNull()
     val formatter=remember {
@@ -723,8 +807,11 @@ private fun isDemoMobile(number: String): Boolean =
         }
     }
     fun label(day: LocalDate): String = formatter.format(Date(day.toEpochDay()*86_400_000L))
-    Action(selectedDay?.let{label(it)} ?: "انتخاب تاریخ مراجعه",enabled && today!=null){open=true}
-    if(open && today!=null) {
+    FormCard("تاریخ مراجعه",Icons.Outlined.CalendarMonth) {
+        selectedDay?.let{Text(label(it),fontWeight=FontWeight.Bold)}
+        OutlinedButton(onClick={open=true},enabled=enabled){Text(if(selectedDay==null) "انتخاب تاریخ مراجعه" else "تغییر تاریخ")}
+    }
+    if(open) {
         var week by rememberSaveable(selected){mutableIntStateOf(
             selectedDay?.let{((it.toEpochDay()-today.toEpochDay())/7).coerceAtLeast(0).toInt()} ?: 0)}
         ModalBottomSheet(onDismissRequest={open=false}) {
@@ -752,7 +839,7 @@ private fun isDemoMobile(number: String): Boolean =
     val picker=rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments(),vm::addImages)
     val maxFiles=ir.namyranservice.customer.domain.ImageRules.maxFiles(vm.config?.optInt("maxFiles",3)?:3)
     val maxMB=(vm.config?.optInt("maxUploadMB",5)?:5).coerceIn(1,20)
-    SectionTitle("تصاویر درخواست", "${vm.images.size} از $maxFiles")
+    SectionTitle("تصاویر درخواست", persianDigits("${vm.images.size} از $maxFiles"))
     if(!review){
         Text("JPEG، PNG یا WebP · هر تصویر حداکثر $maxMB مگابایت",style=MaterialTheme.typography.bodySmall)
         OutlinedButton(onClick={picker.launch(arrayOf("image/jpeg","image/png","image/webp"))},enabled=!vm.busy&&vm.images.size<maxFiles,modifier=Modifier.fillMaxWidth()){
@@ -804,8 +891,22 @@ private fun isDemoMobile(number: String): Boolean =
 
 @Composable private fun Receipt(vm:CustomerViewModel){
     val r=vm.receipt?:return
-    Surface(color=MaterialTheme.colorScheme.primaryContainer,shape=RoundedCornerShape(28.dp)){
-        Column(Modifier.fillMaxWidth().padding(24.dp),verticalArrangement=Arrangement.spacedBy(16.dp),horizontalAlignment=Alignment.CenterHorizontally){Icon(Icons.Outlined.CheckCircle,null,Modifier.size(56.dp));Text("درخواست شما ثبت شد",style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.Bold);Text(r.optString("tracking_code"),fontSize=28.sp,fontWeight=FontWeight.Bold);Text(r.optString("status_label"))}
+    val context = LocalContext.current
+    val code = r.optString("tracking_code")
+    BrandBanner(centered=true) {
+        Icon(Icons.Outlined.CheckCircle,null,Modifier.size(48.dp),tint=Color.White)
+        Text("درخواست شما ثبت شد",color=Color.White,style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.Bold)
+        Text("کد پیگیری",color=Color(0xFFD9E9FF))
+        Text(persianDigits(code),color=Color.White,fontSize=28.sp,fontWeight=FontWeight.Bold)
+        OutlinedButton(onClick={
+            val clipboard=context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("کد پیگیری",code))
+        },colors=ButtonDefaults.outlinedButtonColors(contentColor=Color.White)){
+            Icon(Icons.Outlined.ContentCopy,null)
+            Spacer(Modifier.width(6.dp))
+            Text("کپی کد پیگیری")
+        }
+        Text(r.optString("status_label"),color=Color.White)
     }
     Text(if(vm.receiptInAccount)"همین کد پیگیری در حساب شما بازخوانی و تأیید شد." else "ثبت توسط Core تأیید شد؛ برای بررسی نمایش در حساب، درخواست‌ها را به‌روزرسانی کنید.")
     if(r.optInt("local_image_count")>0)Panel("وضعیت تصاویر",if(r.optBoolean("local_images_confirmed"))"Core ذخیره ${r.optInt("local_image_count")} تصویر را تأیید کرد." else "درخواست ثبت شده، اما ذخیره همه تصاویر تأیید نشد. با همین کد پیگیری از پشتیبانی پیگیری کنید؛ درخواست تازه ثبت نکنید.")
@@ -814,7 +915,8 @@ private fun isDemoMobile(number: String): Boolean =
     val date=r.optString("local_proposed_date")
     val slot=r.optString("local_proposed_slot")
     if(service.isNotBlank() || device.isNotBlank()) Panel("خدمت و دستگاه",listOf(service,device).filter(String::isNotBlank).joinToString(" · "))
-    if(date.isNotBlank()) Panel("زمان پیشنهادی",listOf(date,slot).filter(String::isNotBlank).joinToString(" · "))
+    if(date.isNotBlank()) FormCard("زمان مراجعه ثبت‌شده",Icons.Outlined.EventAvailable) { Text(proposedTime(date,slot)) }
+    if(r.optBoolean("tracking_email_accepted")) Text("کد پیگیری برای ارسال به ایمیل تأییدشده پذیرفته شد.")
     Action("پیگیری درخواست",!vm.busy){vm.track(r.optString("tracking_code"))}
     OutlinedButton(onClick={vm.tab="home"},enabled=!vm.busy,modifier=Modifier.fillMaxWidth()){Text("بازگشت به خانه")}
 }
@@ -849,17 +951,17 @@ private fun isDemoMobile(number: String): Boolean =
     val packages=tv.array("packages").objects()
     val chosen=item.optString("installation_package")
     val enabled=!vm.busy
+    val size=item.optString("tv_size")
+    GuidedField("سایز تلویزیون","اندازه صفحه به اینچ روی جعبه یا مشخصات مدل درج شده است.",size.isBlank()){
+        ExpressivePicker("سایز تلویزیون",tv.array("sizes").strings().map{it to it},size,enabled){vm.changeItem("tv_size",it)}
+    }
+    if(size.isBlank()) return
     GuidedField("پکیج نصب","محتویات هر پکیج و موارد خارج از آن را مقایسه کنید.",false){
         InstallationPackages(packages,chosen,enabled){
             if(it!=chosen) vm.changeItem("installation_package",it)
         }
     }
     if(packages.none{it.optString("id")==chosen}) return
-    val size=item.optString("tv_size")
-    GuidedField("سایز تلویزیون","اندازه صفحه به اینچ روی جعبه یا مشخصات مدل درج شده است.",size.isBlank()){
-        ExpressivePicker("سایز تلویزیون",tv.array("sizes").strings().map{it to it},size,enabled){vm.changeItem("tv_size",it)}
-    }
-    if(size.isBlank()) return
     val bracket=item.optString("tv_bracket")
     GuidedField("نوع نصب و براکت","برای نصب روی دیوار، براکت موردنیاز را انتخاب کنید. برای نصب رومیزی گزینه پایه را بزنید.",bracket.isBlank()){
         ExpressivePicker("نوع نصب و براکت",tv.array("brackets").objects().map{

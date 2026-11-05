@@ -51,7 +51,7 @@ fun ExpressiveRequestHeader(step: Int, heading: String, onClose: () -> Unit) {
             Column(Modifier.weight(1f)) {
                 Text("درخواست خدمت", color = MaterialTheme.colorScheme.onSurface,
                     style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold)
-                Text("مرحله ${step+1} از ۴ · ${heading}",
+                Text("مرحله ${persianDigits((step+1).toString())} از ۴ · ${heading}",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodyMedium)
             }
@@ -64,7 +64,7 @@ fun ExpressiveRequestHeader(step: Int, heading: String, onClose: () -> Unit) {
                 Box(
                     Modifier.weight(1f).height(7.dp)
                         .clip(RoundedCornerShape(50))
-                        .background(if(index <= step) electric else outline)
+                        .background(when { index < step -> Color(0xFF21805D); index == step -> electric; else -> outline })
                 )
             }
         }
@@ -140,6 +140,9 @@ fun ExpressivePicker(
         "گروه دستگاه" -> Icons.Outlined.Category
         "دستگاه" -> Icons.Outlined.Tv
         "برند" -> Icons.Outlined.LocalOffer
+        "شهر محل خدمت" -> Icons.Outlined.LocationCity
+        "محله / محدوده" -> Icons.Outlined.Place
+        "سایز تلویزیون" -> Icons.Outlined.Straighten
         else -> Icons.Outlined.Tune
     }
     Surface(
@@ -384,3 +387,5 @@ fun CrystalOptions(label: String, options: List<JSONObject>, selected: List<Stri
         }
     }
 }
+
+internal fun persianDigits(value: String): String = value.map { if(it in '0'..'9') '۰' + (it - '0') else it }.joinToString("")

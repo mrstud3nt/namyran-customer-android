@@ -16,6 +16,45 @@ import java.util.concurrent.Executors
 
 class CustomerViewModel(application: Application) : AndroidViewModel(application) {
     private val api = CoreApi()
+    private val catalogApi = CoreApi()
+    private val catalogExecutor = Executors.newSingleThreadExecutor()
+    private val catalogPrefs = application.getSharedPreferences("public_catalog_stage", 0)
+    private var catalogLoading = false
+    private var catalogUpdatedAt = 0L
+    var verifiedEmail by mutableStateOf(""); private set
+    var pendingEmail by mutableStateOf(""); private set
+
+    fun refreshEmail(email: String? = null) {
+        if(!loggedIn) return
+        val payload = auth().put("action", if(email == null) "status" else "send")
+        if(email != null) payload.put("email",email.trim())
+        launchTask {
+            val response = api.customerEmail(payload)
+            return@launchTask {
+                verifiedEmail = response.optString("verified_email")
+                pendingEmail = response.optString("pending_email")
+                if(email != null && pendingEmail.isNotBlank())
+                    message = "لینک تأیید برای ارسال پذیرفته شد. صندوق ایمیل را بررسی کنید."
+            }
+        }
+    }
+
+    fun refreshCatalog(force: Boolean = false) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if(catalogLoading || (!force && catalogUpdatedAt > 0 && now - catalogUpdatedAt < 60_000)) return
+        catalogLoading = true
+        catalogExecutor.execute {
+            val result = runCatching { catalogApi.config() }.getOrNull()
+            if(result != null) catalogPrefs.edit().putString("catalog",result.toString()).apply()
+            main.post {
+                if(result != null) {
+                    config = result
+                    catalogUpdatedAt = android.os.SystemClock.elapsedRealtime()
+                } else if(force) error = "به‌روزرسانی فهرست خدمات انجام نشد."
+                catalogLoading = false
+            }
+        }
+    }
     private val store = SecureStore(application)
     private val imageStore = AttachmentStore(application)
     var images by mutableStateOf<List<JSONObject>>(emptyList()); private set
@@ -29,7 +68,10 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
             JSONObject(it.readText())
         }
     }.getOrElse { JSONObject() }
-    var config by mutableStateOf<JSONObject?>(null); private set
+    var config by mutableStateOf(
+        runCatching { JSONObject(catalogPrefs.getString("catalog", null) ?: "") }
+            .getOrNull()?.takeIf { it.optJSONObject("customerMobile")?.optInt("schema") == 1 }
+    ); private set
     var mobile by mutableStateOf(""); private set
     private var token by mutableStateOf("")
     val hasSavedSession: Boolean get() = token.isNotBlank()
@@ -126,11 +168,12 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
     fun dismissError() { error="" }
     private fun auth() = JSONObject().put("mobile",mobile).put("verification_token",token)
     private fun clearSession() {
-        tab="home"; config=null; token=""; sessionTtlSeconds=0; otpSent=false; loggedIn=false; accountName=""; requests=emptyList();addresses=emptyList();tracking=null
+        tab="home"; verifiedEmail="";pendingEmail="";token=""; sessionTtlSeconds=0; otpSent=false; loggedIn=false; accountName=""; requests=emptyList();addresses=emptyList();tracking=null
         images=emptyList();if(pending==null)imageStore.clear();receiptInAccount=false;requestsLoaded=false;name="";address="";description="";city="";area="";latitude="";longitude="";accuracy="";model="";item=JSONObject();items=emptyList();terms=false;creating=false;store.write("draft",null);store.write("receipt",null);store.write("session",null);store.write("address_operation",null);api.clearCookies()
     }
     fun refresh() {
         if (token.isBlank()) return
+        refreshCatalog()
         launchTask {
             val account = try {
                 api.post("otp/session", auth().put("purpose", "customer_service"))
@@ -171,11 +214,8 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
             if (renewedToken != null && sessionTtlSeconds > 0) {
                 persistSession(mobile, renewedToken, sessionTtlSeconds)
             }
-            val catalog = runCatching { api.config() }
             return@launchTask {
                 if (renewedToken != null) token = renewedToken
-                catalog.getOrNull()?.let { config = it }
-                if (config == null) error = "دریافت فهرست خدمات کامل نشد. دوباره تلاش کنید."
                 loggedIn = true
                 if (rows != null) { requests = rows; requestsLoaded = true }
                 if (matchingAccount) {
@@ -283,6 +323,7 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
                 return
             }
         } else null
+        if(name.isBlank()) name = localProfile().optString("name").ifBlank { accountName }
         receipt=null;receiptInAccount=false;creating=true;step=0
         if (serviceId != null && item.optString("service_type") != serviceId) changeItem("service_type",serviceId)
         if (category != null && selectedDevice != null) {
@@ -425,12 +466,28 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
                 .put("local_proposed_slot",saved.optString("visit_time"))
             store.write("receipt",result);store.write("pending",null);store.write("draft",null)
             if(filesConfirmed)selected.forEach(imageStore::remove)
+            val emailPayload = auth().put("request_id",result.optInt("request_id"))
             var rows:List<JSONObject>?=null
             try {rows=api.post("my-requests",auth()).array("requests").objects()}catch(_:Exception){}
             return@launchTask {receipt=result;pending=null;images=emptyList();receiptInAccount=rows?.any{it.optString("tracking_code")==result.optString("tracking_code")}==true
                 if(rows!=null){requests=rows!!;requestsLoaded=true}
-                creating=false;tab="receipt";item=JSONObject();items=emptyList();terms=false;store.write("draft",null)}
+                creating=false;tab="receipt";item=JSONObject();items=emptyList();terms=false;store.write("draft",null)
+                sendReceiptEmail(result,emailPayload)
+            }
         }
     }
-    override fun onCleared(){ executor.shutdown();super.onCleared() }
+    private fun sendReceiptEmail(result: JSONObject, payload: JSONObject) {
+        catalogExecutor.execute {
+            val accepted = runCatching { CoreApi().customerEmail(payload,receipt=true).optBoolean("accepted") }.getOrDefault(false)
+            if(accepted) main.post {
+                if(loggedIn && receipt === result && payload.optString("mobile") == mobile) {
+                    val updated = JSONObject(result.toString()).put("tracking_email_accepted",true)
+                    receipt = updated
+                    runCatching { store.write("receipt",updated) }
+                }
+            }
+        }
+    }
+
+    override fun onCleared(){ executor.shutdown();catalogExecutor.shutdown();super.onCleared() }
 }
