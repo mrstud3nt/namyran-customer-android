@@ -1,0 +1,372 @@
+{
+  "services": [
+    {
+      "id": "install",
+      "title": "نصب و راه‌اندازی",
+      "icon": "install"
+    },
+    {
+      "id": "repair",
+      "title": "تعمیر تخصصی",
+      "icon": "repair"
+    },
+    {
+      "id": "periodic",
+      "title": "سرویس دوره‌ای",
+      "icon": "periodic"
+    },
+    {
+      "id": "warranty",
+      "title": "خدمات گارانتی",
+      "icon": "warranty"
+    }
+  ],
+  "categories": {
+    "صوتی و تصویری": [
+      {
+        "id": "تلویزیون",
+        "title": "تلویزیون",
+        "service_modes": [
+          "install",
+          "repair",
+          "settings"
+        ],
+        "periodic_enabled": false,
+        "settings_enabled": true,
+        "maintenance_enabled": false
+      },
+      {
+        "id": "مانیتور",
+        "title": "مانیتور",
+        "service_modes": [
+          "install",
+          "repair"
+        ],
+        "periodic_enabled": false,
+        "settings_enabled": false,
+        "maintenance_enabled": false
+      },
+      {
+        "id": "ساندبار",
+        "title": "ساندبار",
+        "service_modes": [
+          "install",
+          "repair"
+        ],
+        "periodic_enabled": false,
+        "settings_enabled": false,
+        "maintenance_enabled": false
+      },
+      {
+        "id": "سینمای خانگی",
+        "title": "سینمای خانگی",
+        "service_modes": [
+          "install",
+          "repair"
+        ],
+        "periodic_enabled": false,
+        "settings_enabled": false,
+        "maintenance_enabled": false
+      },
+      {
+        "id": "اسپیکر",
+        "title": "اسپیکر",
+        "service_modes": [
+          "install",
+          "repair"
+        ],
+        "periodic_enabled": false,
+        "settings_enabled": false,
+        "maintenance_enabled": false
+      }
+    ],
+    "شست‌وشو": [
+      {
+        "id": "ماشین لباسشویی",
+        "title": "ماشین لباسشویی",
+        "service_modes": [
+          "install",
+          "repair",
+          "periodic"
+        ],
+        "periodic_enabled": true,
+        "settings_enabled": false,
+        "maintenance_enabled": false
+      },
+      {
+        "id": "ماشین ظرفشویی",
+        "title": "ماشین ظرفشویی",
+        "service_modes": [
+          "install",
+          "repair",
+          "periodic"
+        ],
+        "periodic_enabled": true,
+        "settings_enabled": false,
+        "maintenance_enabled": false
+      },
+      {
+        "id": "خشک‌کن لباس",
+        "title": "خشک‌کن لباس",
+        "service_modes": [
+          "install",
+          "repair"
+        ],
+        "periodic_enabled": false,
+        "settings_enabled": false,
+        "maintenance_enabled": false
+      },
+      {
+        "id": "مینی‌واش",
+        "title": "مینی‌واش",
+        "service_modes": [
+          "install",
+          "repair"
+        ],
+        "periodic_enabled": false,
+        "settings_enabled": false,
+        "maintenance_enabled": false
+      }
+    ],
+    "یخچال و فریزر": [
+      {
+        "id": "ساید بای ساید",
+        "title": "ساید بای ساید",
+        "service_modes": [
+          "install",
+          "repair",
+          "periodic"
+        ],
+        "periodic_enabled": true,
+        "settings_enabled": false,
+        "maintenance_enabled": false
+      },
+      {
+        "id": "یخچال فریزر",
+        "title": "یخچال فریزر",
+        "service_modes": [
+          "install",
+          "repair",
+          "periodic"
+        ],
+        "periodic_enabled": true,
+        "settings_enabled": false,
+        "maintenance_enabled": false
+      },
+      {
+        "id": "یخچال دوقلو",
+        "title": "یخچال دوقلو",
+        "service_modes": [
+          "install",
+          "repair",
+          "periodic"
+        ],
+        "periodic_enabled": true,
+        "settings_enabled": false,
+        "maintenance_enabled": false
+      },
+      {
+        "id": "فریزر",
+        "title": "فریزر",
+        "service_modes": [
+          "install",
+          "repair",
+          "periodic"
+        ],
+        "periodic_enabled": true,
+        "settings_enabled": false,
+        "maintenance_enabled": false
+      },
+      {
+        "id": "یخچال تک",
+        "title": "یخچال تک",
+        "service_modes": [
+          "install",
+          "repair",
+          "periodic"
+        ],
+        "periodic_enabled": true,
+        "settings_enabled": false,
+        "maintenance_enabled": false
+      },
+      {
+        "id": "یخچال فروشگاهی",
+        "title": "یخچال فروشگاهی",
+        "service_modes": [
+          "install",
+          "repair"
+        ],
+        "periodic_enabled": false,
+        "settings_enabled": false,
+        "maintenance_enabled": false
+      }
+    ],
+    "پخت‌وپز": [
+      {
+        "id": "مایکروویو",
+        "title": "مایکروویو",
+        "service_modes": [
+          "install",
+          "repair"
+        ],
+        "periodic_enabled": false,
+        "settings_enabled": false,
+        "maintenance_enabled": false
+      },
+      {
+        "id": "سولاردام",
+        "title": "سولاردام",
+        "service_modes": [
+          "install",
+          "repair"
+        ],
+        "periodic_enabled": false,
+        "settings_enabled": false,
+        "maintenance_enabled": false
+      },
+      {
+        "id": "فر توکار",
+        "title": "فر توکار",
+        "service_modes": [
+          "install",
+          "repair"
+        ],
+        "periodic_enabled": false,
+        "settings_enabled": false,
+        "maintenance_enabled": false
+      },
+      {
+        "id": "اجاق گاز",
+        "title": "اجاق گاز",
+        "service_modes": [
+          "install",
+          "repair"
+        ],
+        "periodic_enabled": false,
+        "settings_enabled": false,
+        "maintenance_enabled": false
+      },
+      {
+        "id": "هود آشپزخانه",
+        "title": "هود آشپزخانه",
+        "service_modes": [
+          "install",
+          "repair"
+        ],
+        "periodic_enabled": false,
+        "settings_enabled": false,
+        "maintenance_enabled": false
+      }
+    ],
+    "سرمایش، گرمایش و تهویه": [
+      {
+        "id": "کولر گازی / اسپلیت",
+        "title": "کولر گازی / اسپلیت",
+        "service_modes": [
+          "install",
+          "repair",
+          "periodic"
+        ],
+        "periodic_enabled": true,
+        "settings_enabled": false,
+        "maintenance_enabled": false
+      },
+      {
+        "id": "فن‌کویل",
+        "title": "فن‌کویل",
+        "service_modes": [
+          "install",
+          "repair",
+          "periodic"
+        ],
+        "periodic_enabled": true,
+        "settings_enabled": false,
+        "maintenance_enabled": false
+      },
+      {
+        "id": "پکیج",
+        "title": "پکیج",
+        "service_modes": [
+          "install",
+          "repair",
+          "periodic"
+        ],
+        "periodic_enabled": true,
+        "settings_enabled": false,
+        "maintenance_enabled": false
+      }
+    ],
+    "لوازم خانگی کوچک": [
+      {
+        "id": "جاروبرقی",
+        "title": "جاروبرقی",
+        "service_modes": [
+          "install",
+          "repair"
+        ],
+        "periodic_enabled": false,
+        "settings_enabled": false,
+        "maintenance_enabled": false
+      },
+      {
+        "id": "جارورباتیک",
+        "title": "جارورباتیک",
+        "service_modes": [
+          "install",
+          "repair",
+          "periodic"
+        ],
+        "periodic_enabled": true,
+        "settings_enabled": false,
+        "maintenance_enabled": false
+      },
+      {
+        "id": "قهوه‌ساز / اسپرسوساز",
+        "title": "قهوه‌ساز / اسپرسوساز",
+        "service_modes": [
+          "install",
+          "repair",
+          "periodic"
+        ],
+        "periodic_enabled": true,
+        "settings_enabled": false,
+        "maintenance_enabled": false
+      },
+      {
+        "id": "دستگاه تهویه / تصفیه هوا",
+        "title": "دستگاه تهویه / تصفیه هوا",
+        "service_modes": [
+          "install",
+          "repair",
+          "periodic"
+        ],
+        "periodic_enabled": true,
+        "settings_enabled": false,
+        "maintenance_enabled": false
+      },
+      {
+        "id": "اتو",
+        "title": "اتو",
+        "service_modes": [
+          "install",
+          "repair"
+        ],
+        "periodic_enabled": false,
+        "settings_enabled": false,
+        "maintenance_enabled": false
+      },
+      {
+        "id": "آبسردکن",
+        "title": "آبسردکن",
+        "service_modes": [
+          "install",
+          "repair",
+          "periodic"
+        ],
+        "periodic_enabled": true,
+        "settings_enabled": false,
+        "maintenance_enabled": false
+      }
+    ]
+  }
+}

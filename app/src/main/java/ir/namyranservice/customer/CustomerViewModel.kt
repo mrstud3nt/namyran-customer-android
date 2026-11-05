@@ -24,6 +24,11 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
     var busy by mutableStateOf(false); private set
     var error by mutableStateOf(""); private set
     var message by mutableStateOf(""); private set
+    val bundledCatalog = runCatching {
+        application.assets.open("stage-home-services.json").bufferedReader().use {
+            JSONObject(it.readText())
+        }
+    }.getOrElse { JSONObject() }
     var config by mutableStateOf<JSONObject?>(null); private set
     var mobile by mutableStateOf(""); private set
     private var token by mutableStateOf("")
@@ -55,7 +60,21 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
     var tab by mutableStateOf("home")
     var creating by mutableStateOf(false)
     var step by mutableIntStateOf(0)
-    var dark by mutableStateOf(false)
+    var dark by mutableStateOf(store.read("display")?.optBoolean("dark") == true)
+        private set
+    fun setDarkMode(enabled: Boolean) {
+        store.write("display", JSONObject().put("dark",enabled))
+        dark = enabled
+    }
+
+    fun localProfile(): JSONObject = if (loggedIn) store.read("profile_" + mobile) ?: JSONObject() else JSONObject()
+    fun saveLocalProfile(fullName: String, birthday: String, photo: String): Boolean {
+        if (!loggedIn) return false
+        return runCatching {
+            store.write("profile_" + mobile, JSONObject().put("name",fullName.trim())
+                .put("birthday",birthday.trim()).put("photo",photo))
+        }.isSuccess
+    }
     var item by mutableStateOf(JSONObject())
     var items by mutableStateOf<List<JSONObject>>(emptyList())
     var accountName by mutableStateOf("")
@@ -239,13 +258,37 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
         val r=api.post("track",JSONObject().put("tracking_code",code).put("mobile",mobile).put("client_id",client))
         return@launchTask { tracking=r;tab="tracking" }
     } }
-    fun startRequest(serviceId: String? = null) {
+    fun startRequest(serviceId: String? = null, category: String? = null, deviceId: String? = null) {
         if(!loggedIn){tab="profile";message="برای ثبت درخواست وارد حساب شوید.";return}
         if(pending!=null)return
-        if(config==null){refresh();return}
-        launchTask { val current=api.config();return@launchTask {config=current;receipt=null;receiptInAccount=false;creating=true;step=0
-            if (serviceId != null && item.optString("service_type") != serviceId &&
-                current.array("services").objects().any { it.optString("id") == serviceId }) changeItem("service_type",serviceId)} }
+        val current = config
+        if(current == null) {
+            launchTask {
+                val fresh = api.config()
+                return@launchTask { config = fresh; openRequest(serviceId, category, deviceId, fresh) }
+            }
+        } else openRequest(serviceId, category, deviceId, current)
+    }
+
+    private fun openRequest(serviceId: String?, category: String?, deviceId: String?, catalog: JSONObject) {
+        if (serviceId != null && catalog.array("services").objects().none { it.optString("id") == serviceId }) {
+            error = "این خدمت در فهرست فعلی فعال نیست."
+            return
+        }
+        val selectedDevice = if (deviceId != null && category != null && serviceId != null) {
+            catalog.optJSONObject("categories")?.array(category)?.objects()?.firstOrNull {
+                it.optString("id") == deviceId && supportsService(it,serviceId)
+            } ?: run {
+                error = "این دستگاه برای خدمت انتخاب‌شده در فهرست فعلی فعال نیست."
+                return
+            }
+        } else null
+        receipt=null;receiptInAccount=false;creating=true;step=0
+        if (serviceId != null && item.optString("service_type") != serviceId) changeItem("service_type",serviceId)
+        if (category != null && selectedDevice != null) {
+            if(item.optString("category") != category) changeItem("category",category)
+            if(item.optString("device") != deviceId) chooseDevice(selectedDevice)
+        }
     }
     fun changeItem(key:String,value:String) {
         val next=JSONObject(item.toString())
