@@ -322,21 +322,48 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
     private fun currentItem():JSONObject=JSONObject(item.toString()).apply { if(NativeRules.isCustomBrand(optString("brand")))put("brand",optString("custom_brand").trim());remove("custom_brand") }.put("device_model",model).put("service_location",if(item.optString("service_type")=="install")"onsite" else item.optString("service_location"))
     fun addItem() { val problem=checkItem();if(problem!=null){error=problem;return};if(items.size>=(config!!.getJSONObject("customerMobile").getInt("maxOrderItems")-1)){error="حداکثر ۲۰ دستگاه در هر درخواست مجاز است.";return};items=items+currentItem();item=JSONObject();model="";step=0;saveDraft() }
     fun removeItem(index:Int){items=items.filterIndexed{i,_->i!=index};saveDraft()}
-    fun next() {
-        error=""
-        when(step){
-            0 -> checkItem()?.let{error=it;return}
-            1 -> {
-                val cities=config?.optJSONObject("customerMobile")?.array("cities")?.objects().orEmpty()
-                if(cities.none{it.optString("id")==city}){error="شهر فعال محل خدمت را انتخاب کنید.";return}
-                if(name.trim().length<3||address.trim().length<8){error="نام کامل و نشانی دقیق را وارد کنید.";return}
-                if(config?.optBoolean("locationRequired")==true&&(latitude.isBlank()||longitude.isBlank())){error="طبق تنظیم Core، موقعیت محل خدمت الزامی است.";return}
+    private fun validationError(stage: Int): String? = when(stage) {
+        0 -> checkItem()
+        1 -> {
+            val cities=config?.optJSONObject("customerMobile")?.array("cities")?.objects().orEmpty()
+            when {
+                cities.none{it.optString("id")==city} -> "شهر فعال محل خدمت را انتخاب کنید."
+                name.trim().length<3 || address.trim().length<8 -> "نام کامل و نشانی دقیق را وارد کنید."
+                config?.optBoolean("locationRequired")==true && (latitude.isBlank()||longitude.isBlank()) ->
+                    "طبق تنظیم Core، موقعیت محل خدمت الزامی است."
+                else -> null
             }
-            2 -> {if(schedule?.optString("date")!=date||schedule?.array("slots")?.objects()?.none{it.optString("value")==slot&&it.optBoolean("available")}!=false){error="زمان پیشنهادی معتبر را از سرور دریافت و انتخاب کنید.";return}}
         }
-        saveDraft();step++
+        2 -> if(schedule?.optString("date")!=date ||
+            schedule?.array("slots")?.objects()?.none{it.optString("value")==slot&&it.optBoolean("available")}!=false)
+            "زمان پیشنهادی معتبر را از سرور دریافت و انتخاب کنید." else null
+        else -> null
     }
-    fun getSchedule(value:String) {val d=normalizedDigits(value).trim();date=d;slot="";schedule=null;saveDraft();launchTask {val r=api.schedule(d);return@launchTask {schedule=r}}}
+
+    fun next() {
+        if(busy || step>=3) return
+        error=validationError(step).orEmpty()
+        if(error.isNotEmpty()) return
+        saveDraft()
+        step++
+    }
+
+    fun getSchedule(value: String) {
+        if(busy) return
+        val requestedDate=normalizedDigits(value).trim()
+        if(requestedDate!=date) slot=""
+        date=requestedDate
+        schedule=null
+        saveDraft()
+        launchTask {
+            val result=api.schedule(requestedDate)
+            return@launchTask {
+                schedule=result
+                if(result.array("slots").objects().none{it.optString("value")==slot&&it.optBoolean("available")}) slot=""
+                saveDraft()
+            }
+        }
+    }
     fun addImages(uris:List<Uri>) {
         if(!loggedIn||pending!=null||uris.isEmpty())return
         val maxFiles=ImageRules.maxFiles(config?.optInt("maxFiles",3)?:3)
@@ -360,7 +387,9 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
     }
     fun submit() {
         if(!loggedIn||!terms||busy||pending!=null){error="ورود به حساب و پذیرش شرایط لازم است.";return}
-        checkItem()?.let{error=it;return}
+        for(stage in 0..2){
+            validationError(stage)?.let{error=it;step=stage;return}
+        }
         val cities=config?.optJSONObject("customerMobile")?.array("cities")?.objects().orEmpty()
         val cityTitle=cities.find{it.optString("id")==city}?.optString("title")?:kotlin.run {error="شهر را دوباره انتخاب کنید.";return}
         val allItems=items+currentItem();val primary=allItems.first()
