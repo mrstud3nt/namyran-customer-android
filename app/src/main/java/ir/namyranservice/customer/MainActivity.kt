@@ -45,6 +45,12 @@ import androidx.lifecycle.ViewModelProvider
 import ir.namyranservice.customer.data.*
 import ir.namyranservice.customer.domain.NativeRules
 import ir.namyranservice.customer.design.*
+import ir.namyranservice.customer.ui.ExpressiveRequestHeader
+import ir.namyranservice.customer.ui.ExpressiveServiceTile
+import ir.namyranservice.customer.ui.ExpressivePicker
+import ir.namyranservice.customer.ui.ExpressiveModelField
+import ir.namyranservice.customer.ui.ExpressiveAddDeviceAction
+import ir.namyranservice.customer.ui.ExpressiveRequestNavigation
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.LocalDate
@@ -510,9 +516,7 @@ private fun isDemoMobile(number: String): Boolean =
 @Composable private fun RequestFlow(vm:CustomerViewModel){
     val config=vm.config!!;val item=vm.item;val context=LocalContext.current
     val headings=listOf("انتخاب خدمت و دستگاه","نشانی و شرح درخواست","زمان پیشنهادی مراجعه","بازبینی و ثبت")
-    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically){Text("درخواست جدید",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold);TextButton(onClick={vm.saveDraft();vm.creating=false},enabled=!vm.busy){Text("ذخیره و بستن")}}
-    Text("مرحله ${vm.step+1} از ۴ · ${headings[vm.step]}",fontWeight=FontWeight.Bold)
-    LinearProgressIndicator(progress={ (vm.step+1)/4f },modifier=Modifier.fillMaxWidth())
+    ExpressiveRequestHeader(vm.step,headings[vm.step]) { vm.saveDraft();vm.creating=false }
     if(item.optString("service_type")=="warranty"){
         Panel("خدمات گارانتی","این خدمت در مرکز گارانتی نامیران پیگیری می‌شود.")
         Action("ورود به مرکز گارانتی Stage",!vm.busy){
@@ -525,12 +529,12 @@ private fun isDemoMobile(number: String): Boolean =
     }
     when(vm.step){
         0->{
-            Text("نوع خدمت",Modifier.fillMaxWidth(),textAlign=TextAlign.Center,style=MaterialTheme.typography.titleLarge)
+            Text("نوع خدمت",Modifier.fillMaxWidth(),textAlign=TextAlign.Right,style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.ExtraBold)
             config.array("services").objects().chunked(2).forEach { row ->
                 Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(12.dp)) {
                     row.forEach { service ->
                         val id=service.optString("id")
-                        ServiceTile(service,!vm.busy,Modifier.weight(1f),selected=item.optString("service_type")==id) {
+                        ExpressiveServiceTile(service,!vm.busy,selected=item.optString("service_type")==id,modifier=Modifier.weight(1f)) {
                             if(item.optString("service_type")!=id) vm.changeItem("service_type",id)
                         }
                     }
@@ -539,16 +543,16 @@ private fun isDemoMobile(number: String): Boolean =
             }
             val categories=config.optJSONObject("categories")?:JSONObject()
             val keys=categories.keys().asSequence().toList()
-            Picker("گروه دستگاه",keys.map{it to it},item.optString("category"),!vm.busy){vm.changeItem("category",it)}
+            ExpressivePicker("گروه دستگاه",keys.map{it to it},item.optString("category"),!vm.busy){vm.changeItem("category",it)}
             val mode=item.optString("service_type")
             val devices=categories.array(item.optString("category")).objects().filter{d->supportsService(d,mode)}
-            Picker("دستگاه",devices.map{it.optString("id") to it.optString("title")},item.optString("device"),!vm.busy){id->devices.find{it.optString("id")==id}?.let(vm::chooseDevice)}
+            ExpressivePicker("دستگاه",devices.map{it.optString("id") to it.optString("title")},item.optString("device"),!vm.busy){id->devices.find{it.optString("id")==id}?.let(vm::chooseDevice)}
             val device=vm.device()
             if(device!=null&&device.array("subtypes").length()>0)Picker("نوع دستگاه",device.array("subtypes").objects().map{it.optString("id") to it.optString("title")},item.optString("catalog_subtype_id"),!vm.busy){vm.changeItem("catalog_subtype_id",it)}
             val brands=config.array(if(mode=="install")"installBrands" else "brands").strings()
-            Picker("برند",brands.map{it to it},item.optString("brand"),!vm.busy){vm.changeItem("brand",it)}
+            ExpressivePicker("برند",brands.map{it to it},item.optString("brand"),!vm.busy){vm.changeItem("brand",it)}
             if(NativeRules.isCustomBrand(item.optString("brand")))Field("نام برند دستگاه",item.optString("custom_brand"),{vm.changeItem("custom_brand",it)},!vm.busy)
-            Field("مدل دستگاه، در صورت اطلاع",vm.model,{vm.model=it;vm.saveDraft()},!vm.busy)
+            ExpressiveModelField(vm.model,!vm.busy){vm.model=it;vm.saveDraft()}
             if(vm.isTv()){
                 val tv=config.optJSONObject("tvInstall")?:JSONObject()
                 Picker("پکیج نصب",tv.array("packages").objects().map{it.optString("id") to it.optString("title")},item.optString("installation_package"),!vm.busy){vm.changeItem("installation_package",it)}
@@ -566,7 +570,7 @@ private fun isDemoMobile(number: String): Boolean =
                 }
             }
             vm.items.forEachIndexed{index,saved->Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Text("${index+1}. ${saved.optString("device")} · ${saved.optString("brand")}",Modifier.weight(1f));IconButton(onClick={vm.removeItem(index)}){Icon(Icons.Outlined.DeleteOutline,"حذف دستگاه")}}}
-            OutlinedButton(onClick=vm::addItem,enabled=!vm.busy,modifier=Modifier.fillMaxWidth()){Icon(Icons.Outlined.Add,null);Text("افزودن دستگاه دیگر به این درخواست")}
+            ExpressiveAddDeviceAction(!vm.busy,vm::addItem)
         }
         1->{
             Field("نام و نام خانوادگی",vm.name,{vm.name=it;vm.saveDraft()},!vm.busy)
@@ -615,10 +619,8 @@ private fun isDemoMobile(number: String): Boolean =
             Action("ثبت نهایی درخواست",!vm.busy&&vm.terms,vm::submit)
         }
     }
-    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(12.dp)){
-        OutlinedButton(onClick={if(vm.step>0)vm.step-- else vm.creating=false;vm.saveDraft()},enabled=!vm.busy,modifier=Modifier.weight(1f).heightIn(min=54.dp)){Text("بازگشت")}
-        if(vm.step<3)Button(onClick=vm::next,enabled=!vm.busy,modifier=Modifier.weight(1f).heightIn(min=54.dp)){Text("ادامه")}
-    }
+    if(vm.step<3)ExpressiveRequestNavigation(!vm.busy,vm::next) { if(vm.step>0)vm.step-- else vm.creating=false;vm.saveDraft() }
+    else OutlinedButton(onClick={if(vm.step>0)vm.step-- else vm.creating=false;vm.saveDraft()},enabled=!vm.busy,modifier=Modifier.fillMaxWidth()){Text("بازگشت")}
 }
 
 @Composable private fun ImageAttachments(vm:CustomerViewModel,review:Boolean=false){
