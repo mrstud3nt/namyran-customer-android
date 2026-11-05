@@ -91,8 +91,8 @@ class MainActivity : ComponentActivity() {
     LaunchedEffect(vm.tab,vm.creating,vm.step){pageScroll.scrollTo(0)}
     Scaffold(containerColor=MaterialTheme.colorScheme.background,bottomBar={
         if(!vm.creating)NavigationBar {
-            listOf(Triple("home","خانه",Icons.Outlined.Home),Triple("requests","درخواست‌ها",Icons.Outlined.ReceiptLong),Triple("profile","حساب من",Icons.Outlined.PersonOutline)).forEach{(id,title,icon)->
-                NavigationBarItem(selected=vm.tab==id,onClick={if(!vm.busy){vm.tab=id;if(id=="requests")vm.loadRequests()}},icon={Icon(icon,null)},label={Text(title)})
+            listOf(Triple("home","خانه",Icons.Outlined.Home),Triple("requests","درخواست‌ها",Icons.Outlined.ReceiptLong),Triple("track","پیگیری",Icons.Outlined.Search),Triple("profile","حساب من",Icons.Outlined.PersonOutline),Triple("support","پشتیبانی",Icons.Outlined.SupportAgent)).forEach{(id,title,icon)->
+                NavigationBarItem(selected=vm.tab==id||(id=="track"&&vm.tab=="tracking"),onClick={if(!vm.busy){vm.tab=id;if(id=="requests")vm.loadRequests()}},icon={Icon(icon,null)},label={Text(title,style=MaterialTheme.typography.labelSmall,maxLines=1)})
             }
         }
     }){padding->
@@ -144,7 +144,9 @@ class MainActivity : ComponentActivity() {
                 "requests"->Requests(vm)
                 "profile"->Profile(vm)
                 "receipt"->Receipt(vm)
+                "track"->TrackLookup(vm)
                 "tracking"->Tracking(vm)
+                "support"->Support()
             }
             Spacer(Modifier.height(16.dp))
         }
@@ -241,14 +243,15 @@ private fun openSupport(context: Context) {
         if(vm.accountName.isBlank()) {
             Panel("تکمیل اطلاعات حساب","نام و نشانی را می‌توانید هنگام ثبت درخواست وارد کنید.")
         }
-        val active = vm.requests.filter { it.optString("status") !in listOf("completed","cancelled") }
+        val eligible = vm.requests.filter { it.optString("status") != "cancelled" }
+        val recent = (eligible.distinctBy(::requestState) + eligible).distinctBy { it.optString("tracking_code") }.take(3)
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically) {
-            Text("درخواست‌های فعال",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold,
+            Text("وضعیت درخواست‌ها",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold,
                 color=MaterialTheme.colorScheme.primary)
             TextButton(onClick=vm::loadRequests,enabled=!vm.busy){Text("همه درخواست‌ها")}
         }
-        if(vm.requestsLoaded && active.isEmpty()) Panel("درخواست فعالی ندارید","وضعیت درخواست جدید از همین بخش قابل پیگیری است.")
-        active.take(2).forEach { RequestCard(it,vm) }
+        if(vm.requestsLoaded && recent.isEmpty()) Panel("هنوز درخواستی برای نمایش نیست","وضعیت درخواست جدید از همین بخش قابل پیگیری است.")
+        recent.forEach { RequestCard(it,vm) }
         TextButton(onClick={vm.refreshCatalog(force=true)},enabled=!vm.busy){
             Icon(Icons.Outlined.Refresh,null)
             Spacer(Modifier.width(6.dp))
@@ -304,7 +307,7 @@ private fun openSupport(context: Context) {
     SectionTitle("درخواست‌های من",vm.requests.size.toString())
     Field("جستجو با کد پیگیری",query,{query=normalizedDigits(it).take(40)})
     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)) {
-        listOf("همه","فعال","تکمیل‌شده","لغوشده").forEachIndexed{index,title->
+        listOf("همه","در حال اجرا","در حال پیگیری","تکمیل‌شده","لغوشده").forEachIndexed{index,title->
             FilterChip(selected=filter==index,onClick={filter=index},label={Text(title)})
         }
     }
@@ -312,8 +315,7 @@ private fun openSupport(context: Context) {
         Icon(Icons.Outlined.Refresh,null);Spacer(Modifier.width(8.dp));Text("به‌روزرسانی وضعیت")
     }
     val visible=vm.requests.filter {
-        val status=it.optString("status")
-        val matches=when(filter){1->status !in setOf("completed","cancelled");2->status=="completed";3->status=="cancelled";else->true}
+        val matches=filter==0 || requestState(it)==filter
         matches && it.optString("tracking_code").contains(query.trim())
     }
     when {
@@ -324,22 +326,78 @@ private fun openSupport(context: Context) {
     }
 }
 
-@Composable private fun RequestCard(row:JSONObject,vm:CustomerViewModel){
-    Card(onClick={if(!vm.busy)vm.track(row.optString("tracking_code"))},modifier=Modifier.fillMaxWidth(),shape=RoundedCornerShape(22.dp)){
-        Column(Modifier.padding(18.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
-            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically) {
-                Text(row.optString("service_label"),Modifier.weight(1f),fontWeight=FontWeight.Bold)
-                val attention=row.optBoolean("needs_customer_action")
-                Surface(shape=RoundedCornerShape(20.dp),
-                    color=if(attention) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.secondaryContainer,
-                    contentColor=if(attention) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSecondaryContainer) {
-                    Text(row.optString("status_label"),Modifier.padding(horizontal=10.dp,vertical=6.dp),style=MaterialTheme.typography.labelMedium)
+private fun requestState(row: JSONObject): Int = when(row.optString("status")){
+    "in_progress","technician_dispatched","technician_arrived" -> 1
+    "completed" -> 3
+    "cancelled" -> 4
+    else -> 2
+}
+
+@Composable private fun RequestCard(row: JSONObject, vm: CustomerViewModel) {
+    val scheme=MaterialTheme.colorScheme
+    val state=requestState(row)
+    val title=when(state){1->"در حال اجرا";3->"تکمیل‌شده";4->"لغوشده";else->"در حال پیگیری"}
+    val accent=when(state){
+        1->if(vm.dark) Color(0xFF8CC9FF) else Color(0xFF1261A3)
+        3->if(vm.dark) Color(0xFF8BE7C7) else Color(0xFF09674D)
+        4->scheme.onSurfaceVariant
+        else->if(vm.dark) Color(0xFFFFCE7B) else Color(0xFF815000)
+    }
+    val icon=when(state){1->Icons.Outlined.PlayCircle;3->Icons.Outlined.CheckCircle;4->Icons.Outlined.Cancel;else->Icons.Outlined.Schedule}
+    val shape=RoundedCornerShape(24.dp)
+    val code=row.optString("tracking_code")
+    Surface(onClick={vm.track(code)},enabled=!vm.busy&&code.isNotBlank(),
+        modifier=Modifier.fillMaxWidth(),shape=shape,color=scheme.surface,shadowElevation=5.dp,
+        border=androidx.compose.foundation.BorderStroke(1.dp,accent.copy(alpha=.26f))) {
+        Box {
+            Canvas(Modifier.matchParentSize()) {
+                drawRect(Brush.linearGradient(listOf(accent.copy(alpha=.15f),scheme.surface.copy(alpha=.1f),accent.copy(alpha=.06f))))
+                drawCircle(accent.copy(alpha=.06f),size.width*.55f,Offset(size.width*.08f,-size.height*.47f))
+            }
+            Column(Modifier.fillMaxWidth().padding(15.dp),verticalArrangement=Arrangement.spacedBy(9.dp)) {
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically) {
+                    Text(row.optString("service_label"),Modifier.weight(1f),fontWeight=FontWeight.Bold)
+                    Surface(shape=RoundedCornerShape(50),color=accent.copy(alpha=.12f),contentColor=accent) {
+                        Row(Modifier.padding(horizontal=9.dp,vertical=6.dp),horizontalArrangement=Arrangement.spacedBy(5.dp),verticalAlignment=Alignment.CenterVertically) {
+                            Icon(icon,null,Modifier.size(17.dp))
+                            Text(title,style=MaterialTheme.typography.labelMedium,fontWeight=FontWeight.Bold)
+                        }
+                    }
+                }
+                val device=listOf(row.optString("device"),row.optString("brand")).filter(String::isNotBlank).joinToString(" · ")
+                if(device.isNotBlank()) Text(device,style=MaterialTheme.typography.bodyMedium)
+                val detail=row.optString("status_label")
+                if(detail.isNotBlank()&&detail!=title) Text(detail,style=MaterialTheme.typography.bodySmall,color=scheme.onSurfaceVariant)
+                if(row.optBoolean("needs_customer_action")) Text("این درخواست نیاز به اقدام شما دارد.",color=scheme.error)
+                HorizontalDivider(color=accent.copy(alpha=.2f))
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) {
+                    Text("پیگیری ${persianDigits(code)}",style=MaterialTheme.typography.labelMedium)
+                    Text(persianDigits(row.optString("visit_date_jalali")),style=MaterialTheme.typography.labelMedium)
                 }
             }
-            Text(listOf(row.optString("device"),row.optString("brand")).filter{it.isNotBlank()}.joinToString(" · "))
-            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text("پیگیری ${row.optString("tracking_code")}",style=MaterialTheme.typography.labelMedium);Text(row.optString("visit_date_jalali"),style=MaterialTheme.typography.labelMedium)}
-            if(row.optBoolean("needs_customer_action"))Text("این درخواست نیاز به اقدام شما دارد.",color=MaterialTheme.colorScheme.error)
         }
+    }
+}
+
+@Composable private fun TrackLookup(vm: CustomerViewModel) {
+    var code by rememberSaveable { mutableStateOf("") }
+    FormCard("پیگیری درخواست",Icons.Outlined.Search) {
+        Text("کد پیگیری درخواست خود را وارد کنید.")
+        Field("کد پیگیری",code,{code=normalizedDigits(it).trim().take(40)},!vm.busy)
+        Action("نمایش وضعیت درخواست",!vm.busy&&code.isNotBlank()){vm.track(code)}
+    }
+}
+
+@Composable private fun Support() {
+    val context=LocalContext.current
+    FormCard("پشتیبانی نامیران سرویس",Icons.Outlined.SupportAgent) {
+        Text("برای راهنمایی درباره درخواست، با پشتیبانی تماس بگیرید یا در واتساپ پیام بفرستید.")
+        Action("تماس با پشتیبانی"){openSupport(context)}
+        OutlinedButton(onClick={
+            val uri=android.net.Uri.parse("https://wa.me/989375846363")
+            runCatching{context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,uri))}
+                .onFailure{android.widget.Toast.makeText(context,"باز کردن واتساپ ممکن نبود.",android.widget.Toast.LENGTH_SHORT).show()}
+        },modifier=Modifier.fillMaxWidth()){Text("پیام به پشتیبانی در واتساپ")}
     }
 }
 
