@@ -13,6 +13,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -54,6 +55,9 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable private fun CustomerApp(vm:CustomerViewModel) {
+    var showMenu by rememberSaveable { mutableStateOf(false) }
+    var showHelp by rememberSaveable { mutableStateOf(false) }
+    val context = LocalContext.current
     BackHandler(vm.creating || vm.tab in listOf("tracking","receipt")) { if(!vm.busy){if(vm.creating&&vm.step>0)vm.step-- else {vm.creating=false;vm.tab="home"};vm.saveDraft()} }
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
         NamyranTheme(vm.dark) {
@@ -66,9 +70,26 @@ class MainActivity : ComponentActivity() {
             }){padding->
                 Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(horizontal=20.dp,vertical=16.dp),verticalArrangement=Arrangement.spacedBy(16.dp)){
                     Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween){
-                        Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){
+                        Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                            Box {
+                                IconButton(onClick={showMenu=true},enabled=!vm.busy&&!vm.creating) {
+                                    Icon(Icons.Outlined.Menu,"منوی حساب")
+                                }
+                                DropdownMenu(showMenu,{showMenu=false}) {
+                                    Row(Modifier.widthIn(min=220.dp).padding(horizontal=16.dp,vertical=8.dp), verticalAlignment=Alignment.CenterVertically, horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                                        CustomerAvatar(vm.accountName)
+                                        Column(Modifier.weight(1f,false)) {
+                                            Text(vm.accountName.ifBlank { if(vm.loggedIn) "حساب مشتری" else "نامیران سرویس" },fontWeight=FontWeight.Bold)
+                                            if(vm.loggedIn) Text(vm.mobile,style=MaterialTheme.typography.labelMedium)
+                                        }
+                                    }
+                                    DropdownMenuItem(text={Text(if(vm.loggedIn)"حساب و نشانی‌ها" else "ورود به ناحیه کاربری")},leadingIcon={Icon(Icons.Outlined.PersonOutline,null)},onClick={showMenu=false;vm.tab="profile"})
+                                    DropdownMenuItem(text={Text("راهنمای نامیران سرویس")},leadingIcon={Icon(Icons.Outlined.HelpOutline,null)},onClick={showMenu=false;showHelp=true})
+                                    DropdownMenuItem(text={Text("ارتباط با پشتیبانی")},leadingIcon={Icon(Icons.Outlined.SupportAgent,null)},onClick={showMenu=false;openSupport(context)})
+                                }
+                            }
                             Surface(shape=RoundedCornerShape(16.dp),color=Color.White){androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(R.drawable.namyran_symbol),"نشان نامیران سرویس",Modifier.size(52.dp).padding(4.dp))}
-                            Column{Text("نامیران سرویس",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold);Text("محیط آزمایش · Stage",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
+                            Column{Text("نامیران سرویس",style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold);Text("محیط آزمایش · Stage",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
                         }
                         IconButton(onClick={vm.dark=!vm.dark}){Icon(if(vm.dark)Icons.Outlined.LightMode else Icons.Outlined.DarkMode,"تغییر حالت نمایش")}
                     }
@@ -81,7 +102,12 @@ class MainActivity : ComponentActivity() {
                         Panel("ثبت قبلی نیاز به بررسی دارد","برای جلوگیری از ثبت تکراری، همان درخواست با همان شناسه دوباره بررسی می‌شود.")
                         Action("بررسی نتیجه ثبت قبلی",!vm.busy&&vm.loggedIn){vm.retryPending()}
                     }
-                    if(vm.config==null){
+                    if(showHelp) AlertDialog(
+                        onDismissRequest={showHelp=false}, title={Text("راهنمای نامیران سرویس")},
+                        text={Text("از خانه خدمت و دستگاه را انتخاب کنید. پس از ورود، نشانی و زمان پیشنهادی را وارد کنید. کد پیگیری و آخرین وضعیت را در درخواست‌ها ببینید.")},
+                        confirmButton={TextButton(onClick={showHelp=false}){Text("بستن")}}
+                    )
+                    if(vm.config==null && vm.tab=="home"){
                         Panel("دریافت اطلاعات خدمات","فهرست خدمات باید از Core محیط آزمایش دریافت شود.")
                         Action("تلاش دوباره",!vm.busy){vm.refresh()}
                     }else if(vm.creating&&vm.pending==null)RequestFlow(vm)
@@ -99,22 +125,64 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@Composable private fun CustomerAvatar(name: String) {
+    Surface(shape=RoundedCornerShape(18.dp),color=MaterialTheme.colorScheme.primaryContainer) {
+        Box(Modifier.size(48.dp),contentAlignment=Alignment.Center) {
+            if(name.isBlank()) Icon(Icons.Outlined.PersonOutline,null)
+            else Text(name.trim().take(1),style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
+        }
+    }
+}
+
+private fun openSupport(context: Context) {
+    val intent=android.content.Intent(android.content.Intent.ACTION_DIAL,android.net.Uri.parse("tel:09375846363"))
+    if(runCatching { context.startActivity(intent) }.isFailure) {
+        android.widget.Toast.makeText(context,"پشتیبانی نامیران سرویس ۰۹۳۷۵۸۴۶۳۶۳",android.widget.Toast.LENGTH_LONG).show()
+    }
+}
+
 @Composable private fun Home(vm:CustomerViewModel){
+    var query by rememberSaveable { mutableStateOf("") }
+    val config = vm.config ?: return
+    val services=config.array("services").objects()
+    val results=remember(query,config) {
+        val term=query.trim().replace('ي','ی').replace('ك','ک')
+        if(term.isEmpty()) emptyList()
+        else services.filter { it.optString("title").contains(term,ignoreCase=true) }
+    }
+    OutlinedTextField(query,{query=it},modifier=Modifier.fillMaxWidth(),singleLine=true,
+        label={Text("جستجو در نامیران سرویس")},leadingIcon={Icon(Icons.Outlined.Search,null)},
+        trailingIcon={if(query.isNotEmpty())IconButton(onClick={query=""}){Icon(Icons.Outlined.Close,"پاک کردن جستجو")}},
+        shape=RoundedCornerShape(24.dp))
+    if(query.isNotBlank()) {
+        if(results.isEmpty()) Panel("خدمتی پیدا نشد","نام خدمت را جستجو کنید، مثلاً تعمیر یا نصب.")
+        results.forEach { result ->
+            OutlinedButton(onClick={vm.startRequest(result.optString("id"))},enabled=!vm.busy,modifier=Modifier.fillMaxWidth()) {
+                Text(result.optString("title"))
+            }
+        }
+    }
     Column(Modifier.fillMaxWidth().background(Brush.linearGradient(listOf(NamyranColors.blue,NamyranColors.cyan)),RoundedCornerShape(28.dp)).padding(24.dp),verticalArrangement=Arrangement.spacedBy(14.dp)){
-        Text(if(vm.loggedIn)"سلام ${vm.name.takeIf{it.isNotBlank()}?:"همراه نامیران"}" else "خدمات مطمئن، خیال آسوده",color=Color.White,fontWeight=FontWeight.Bold,fontSize=24.sp)
+        Text(if(vm.loggedIn)"سلام ${vm.accountName.takeIf{it.isNotBlank()}?:"همراه نامیران"}" else "خدمات مطمئن، خیال آسوده",color=Color.White,fontWeight=FontWeight.Bold,fontSize=24.sp)
         Text("نصب، تعمیر و نگهداری لوازم خانگی",color=Color.White)
-        Button(onClick=vm::startRequest,enabled=!vm.busy&&vm.pending==null,modifier=Modifier.fillMaxWidth().heightIn(min=54.dp),colors=ButtonDefaults.buttonColors(containerColor=Color.White,contentColor=NamyranColors.blue)){Text("ثبت درخواست جدید")}
+        Button(onClick={vm.startRequest()},enabled=!vm.busy&&vm.pending==null,modifier=Modifier.fillMaxWidth().heightIn(min=54.dp),colors=ButtonDefaults.buttonColors(containerColor=Color.White,contentColor=NamyranColors.blue)){Text("ثبت درخواست جدید")}
     }
     if(vm.loggedIn){
+        if(vm.accountName.isBlank()) {
+            Panel("پروفایلتان را کامل کنید","نام و نام خانوادگی را هنگام ثبت درخواست وارد کنید. نشانی را می‌توانید برای درخواست‌های بعدی ذخیره کنید.")
+        }
         val active=vm.requests.filter{it.optString("status") !in listOf("completed","cancelled")}
         SectionTitle("درخواست‌های فعال",active.size.toString())
         if(vm.requestsLoaded&&active.isEmpty())Panel("درخواست فعالی ندارید","برای شروع، خدمت و دستگاه موردنظر را انتخاب کنید.")
         active.take(2).forEach{RequestCard(it,vm)}
-    }else Panel("همه خدمات در حساب شما","برای ثبت و پیگیری درخواست‌ها با شماره موبایل وارد شوید.")
+    }else {
+        OutlinedButton(onClick={vm.tab="profile"},modifier=Modifier.fillMaxWidth().heightIn(min=52.dp),shape=RoundedCornerShape(18.dp)){
+            Icon(Icons.Outlined.PersonOutline,null);Spacer(Modifier.width(8.dp));Text("ورود به ناحیه کاربری")
+        }
+    }
     SectionTitle("خدمات ما")
-    val services=vm.config!!.array("services").objects()
     services.chunked(2).forEach{row->Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(12.dp)){
-        row.forEach{s->Card(onClick={vm.startRequest();if(vm.loggedIn)vm.changeItem("service_type",s.getString("id"))},modifier=Modifier.weight(1f),shape=RoundedCornerShape(22.dp)){
+        row.forEach{s->Card(onClick={vm.startRequest(s.getString("id"))},modifier=Modifier.weight(1f),shape=RoundedCornerShape(22.dp)){
             Column(Modifier.padding(18.dp).heightIn(min=80.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
                 Icon(when(s.optString("icon")){"install"->Icons.Outlined.Handyman;"warranty"->Icons.Outlined.VerifiedUser;"periodic"->Icons.Outlined.Update;else->Icons.Outlined.Build},null,tint=MaterialTheme.colorScheme.primary)
                 Text(s.optString("title"),fontWeight=FontWeight.Bold)
@@ -146,26 +214,39 @@ class MainActivity : ComponentActivity() {
 
 @Composable private fun Profile(vm:CustomerViewModel){
     SectionTitle("حساب من")
-    var phone by rememberSaveable{mutableStateOf(vm.mobile)}
+    var phone by rememberSaveable{mutableStateOf(vm.rememberedMobile)}
+    var rememberNumber by rememberSaveable{mutableStateOf(vm.rememberedMobile.isNotBlank())}
     var code by rememberSaveable{mutableStateOf("")}
     var now by remember{mutableLongStateOf(System.currentTimeMillis())}
     LaunchedEffect(vm.resendAt){while(System.currentTimeMillis()<vm.resendAt){now=System.currentTimeMillis();kotlinx.coroutines.delay(1000)};now=System.currentTimeMillis()}
     if(vm.loggedIn){
-        Panel("شماره تأییدشده",vm.mobile)
+        Card(modifier=Modifier.fillMaxWidth(),shape=RoundedCornerShape(24.dp)) {
+            Row(Modifier.padding(18.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(14.dp)) {
+                CustomerAvatar(vm.accountName)
+                Column {
+                    Text(vm.accountName.ifBlank { "حساب مشتری" },style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold)
+                    Text("شماره تأییدشده · "+vm.mobile,style=MaterialTheme.typography.bodyMedium)
+                }
+            }
+        }
         Action("مشاهده درخواست‌های من",!vm.busy,vm::loadRequests)
         OutlinedButton(onClick=vm::loadAddresses,enabled=!vm.busy,modifier=Modifier.fillMaxWidth()){Text("دریافت نشانی‌های ذخیره‌شده")}
-        vm.addresses.forEach{row->val a=try{JSONObject(row.optString("data_json"))}catch(_:Exception){JSONObject()};Panel(row.optString("label"),a.optString("address"))}
+        vm.addresses.forEach{row->val a=try{JSONObject(row.optString("data_json"))}catch(_:Exception){JSONObject()};Panel(when(row.optString("label")){"home"->"خانه";"work"->"محل کار";else->"نشانی دیگر"},a.optString("address"))}
         OutlinedButton(onClick=vm::logout,enabled=!vm.busy,modifier=Modifier.fillMaxWidth()){Text("خروج از حساب")}
     }else{
         Panel("ورود با شماره موبایل","کد ورود به شماره شما پیامک می‌شود.")
         Field("شماره موبایل",phone,{phone=it},!vm.busy&&!vm.otpSent,KeyboardType.Phone)
+        Row(Modifier.fillMaxWidth().clickable(enabled=!vm.busy){rememberNumber=!rememberNumber;if(!rememberNumber)vm.rememberMobile(false)},verticalAlignment=Alignment.CenterVertically) {
+            Checkbox(rememberNumber,null,enabled=!vm.busy)
+            Text("شماره‌ام را به خاطر بسپار",Modifier.padding(12.dp))
+        }
         if(vm.otpSent){
             Text("کد ارسال‌شده به ${vm.mobile} را وارد کنید.")
             Field("کد چهاررقمی",code,{code=normalizedDigits(it).filter(Char::isDigit).take(4)},!vm.busy,KeyboardType.NumberPassword)
             Action("تأیید و ورود",!vm.busy&&code.length==4){vm.verifyOtp(code)}
         }
         val remaining=((vm.resendAt-now+999)/1000).coerceAtLeast(0)
-        OutlinedButton(onClick={vm.sendOtp(phone)},enabled=!vm.busy&&remaining==0L,modifier=Modifier.fillMaxWidth().heightIn(min=54.dp)){
+        OutlinedButton(onClick={vm.sendOtp(phone,rememberNumber)},enabled=!vm.busy&&remaining==0L,modifier=Modifier.fillMaxWidth().heightIn(min=54.dp)){
             Text(if(remaining>0)"ارسال دوباره در $remaining ثانیه" else if(vm.otpSent)"ارسال دوباره کد" else "دریافت کد ورود")
         }
     }
@@ -233,9 +314,16 @@ class MainActivity : ComponentActivity() {
             Field("شرح مشکل یا نیاز به خدمت",vm.description,{vm.description=it;vm.saveDraft()},!vm.busy,lines=4)
             ImageAttachments(vm)
             LocationButton(vm)
-            if(vm.latitude.isNotBlank())Text("موقعیت ثبت شد · دقت ${vm.accuracy.ifBlank{"نامشخص"}} متر",style=MaterialTheme.typography.bodySmall)
+            if(vm.latitude.isNotBlank()) {
+                Text("موقعیت ثبت شد · دقت ${vm.accuracy.ifBlank{"نامشخص"}} متر",style=MaterialTheme.typography.bodySmall)
+                var addressLabel by rememberSaveable { mutableStateOf("home") }
+                Picker("عنوان نشانی",listOf("home" to "خانه","work" to "محل کار","other" to "دیگر"),addressLabel,!vm.busy){addressLabel=it}
+                OutlinedButton(onClick={vm.saveRequestAddress(addressLabel)},enabled=!vm.busy&&vm.address.trim().length>=8,modifier=Modifier.fillMaxWidth()){
+                    Text("ذخیره نشانی در حساب من")
+                }
+            }
             OutlinedButton(onClick=vm::loadAddresses,enabled=!vm.busy,modifier=Modifier.fillMaxWidth()){Text("انتخاب از نشانی‌های من")}
-            vm.addresses.forEach{row->val a=try{JSONObject(row.optString("data_json"))}catch(_:Exception){JSONObject()};OutlinedButton(onClick={vm.address=a.optString("address");vm.latitude=a.optString("latitude");vm.longitude=a.optString("longitude");vm.saveDraft()},modifier=Modifier.fillMaxWidth()){Text(a.optString("address"))}}
+            vm.addresses.forEach{row->val a=try{JSONObject(row.optString("data_json"))}catch(_:Exception){JSONObject()};OutlinedButton(onClick={vm.address=a.optString("address");vm.latitude=a.optString("latitude");vm.longitude=a.optString("longitude");vm.accuracy="";vm.saveDraft()},modifier=Modifier.fillMaxWidth()){Text(a.optString("address"))}}
         }
         2->{
             Panel("زمان پیشنهادی شما","این بازه برای بررسی و هماهنگی مراجعه ثبت می‌شود؛ تأیید نهایی پس از بررسی نامیران انجام می‌شود.")
