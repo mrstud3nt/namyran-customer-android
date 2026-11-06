@@ -74,7 +74,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable private fun CustomerApp(vm:CustomerViewModel) {
-    BackHandler(vm.loggedIn && (vm.creating || vm.tab in listOf("tracking","receipt"))) { if(!vm.busy){if(vm.creating&&vm.step>0)vm.step-- else {vm.creating=false;vm.tab="home"};vm.saveDraft()} }
+    BackHandler(vm.loggedIn && (vm.creating || vm.tab in listOf("tracking","receipt","partners"))) { if(!vm.busy){if(vm.creating&&vm.step>0)vm.step-- else {vm.creating=false;vm.tab="home"};vm.saveDraft()} }
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
         NamyranTheme(vm.dark) {
             if (vm.loggedIn) CustomerWorkspace(vm)
@@ -113,7 +113,7 @@ class MainActivity : ComponentActivity() {
                             }
                             DropdownMenuItem(text={Text(if(vm.loggedIn)"حساب و نشانی‌ها" else "ورود به ناحیه کاربری")},leadingIcon={Icon(Icons.Outlined.PersonOutline,null)},onClick={showMenu=false;vm.tab="profile"})
                             DropdownMenuItem(text={Text("راهنمای نامیران سرویس")},leadingIcon={Icon(Icons.Outlined.HelpOutline,null)},onClick={showMenu=false;showHelp=true})
-                            DropdownMenuItem(text={Text("ارتباط با پشتیبانی")},leadingIcon={Icon(Icons.Outlined.SupportAgent,null)},onClick={showMenu=false;openSupport(context)})
+                            DropdownMenuItem(text={Text("ارتباط با پشتیبانی")},leadingIcon={Icon(Icons.Outlined.SupportAgent,null)},onClick={showMenu=false;vm.tab="support"})
                         }
                     }
                     Surface(shape=RoundedCornerShape(16.dp),color=Color.White){androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(R.drawable.namyran_symbol),"نشان نامیران سرویس",Modifier.size(52.dp).padding(4.dp))}
@@ -146,7 +146,8 @@ class MainActivity : ComponentActivity() {
                 "receipt"->Receipt(vm)
                 "track"->TrackLookup(vm)
                 "tracking"->Tracking(vm)
-                "support"->Support()
+                "support"->Support(vm, { openSupport(context) })
+                "partners"->Partners(vm)
             }
             Spacer(Modifier.height(16.dp))
         }
@@ -200,7 +201,7 @@ private fun openSupport(context: Context) {
             Spacer(Modifier.width(6.dp))
             Text("ثبت درخواست جدید",textAlign=TextAlign.Center)
         }
-        OutlinedButton(onClick={if(demo) demoService="پیگیری درخواست" else {vm.tab="requests";vm.loadRequests()}},
+        OutlinedButton(onClick={if(demo) demoService="پیگیری درخواست" else vm.run { tab="track" }},
             enabled=demo||!vm.busy,modifier=Modifier.weight(1f),
             colors=ButtonDefaults.outlinedButtonColors(contentColor=Color.White)) {
             Text("پیگیری درخواست",textAlign=TextAlign.Center)
@@ -252,6 +253,7 @@ private fun openSupport(context: Context) {
         }
         if(vm.requestsLoaded && recent.isEmpty()) Panel("هنوز درخواستی برای نمایش نیست","وضعیت درخواست جدید از همین بخش قابل پیگیری است.")
         recent.forEach { RequestCard(it,vm) }
+        Partners(vm, preview = true)
         TextButton(onClick={vm.refreshCatalog(force=true)},enabled=!vm.busy){
             Icon(Icons.Outlined.Refresh,null)
             Spacer(Modifier.width(6.dp))
@@ -285,7 +287,7 @@ private fun openSupport(context: Context) {
     }
 }
 
-@Composable private fun BrandBanner(centered: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
+@Composable internal fun BrandBanner(centered: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
     val shape = RoundedCornerShape(28.dp)
     Box(Modifier.fillMaxWidth().clip(shape).background(Brush.linearGradient(
         listOf(Color(0xFF102654),Color(0xFF1359BA),Color(0xFF087B91))))) {
@@ -388,19 +390,6 @@ private fun requestState(row: JSONObject): Int = when(row.optString("status")){
     }
 }
 
-@Composable private fun Support() {
-    val context=LocalContext.current
-    FormCard("پشتیبانی نامیران سرویس",Icons.Outlined.SupportAgent) {
-        Text("برای راهنمایی درباره درخواست، با پشتیبانی تماس بگیرید یا در واتساپ پیام بفرستید.")
-        Action("تماس با پشتیبانی"){openSupport(context)}
-        OutlinedButton(onClick={
-            val uri=android.net.Uri.parse("https://wa.me/989375846363")
-            runCatching{context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,uri))}
-                .onFailure{android.widget.Toast.makeText(context,"باز کردن واتساپ ممکن نبود.",android.widget.Toast.LENGTH_SHORT).show()}
-        },modifier=Modifier.fillMaxWidth()){Text("پیام به پشتیبانی در واتساپ")}
-    }
-}
-
 @Composable private fun Profile(vm: CustomerViewModel) {
     val context = LocalContext.current
     var saved by remember(vm.mobile) { mutableStateOf(vm.localProfile()) }
@@ -478,7 +467,7 @@ private fun requestState(row: JSONObject): Int = when(row.optString("status")){
     }
 }
 
-@Composable private fun FormCard(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector, content: @Composable ColumnScope.()->Unit) {
+@Composable internal fun FormCard(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector, content: @Composable ColumnScope.()->Unit) {
     OutlinedCard(Modifier.fillMaxWidth(),shape=RoundedCornerShape(22.dp)) {
         Column(Modifier.fillMaxWidth().padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {

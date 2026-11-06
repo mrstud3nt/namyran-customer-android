@@ -77,7 +77,7 @@ jobs:
       - name: Publish Stage Debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: Namyran-Customer-Stage-v0.4.9-debug
+          name: Namyran-Customer-Stage-v0.4.10-debug
           path: |
             app/build/outputs/apk/debug/app-debug.apk
             app/build/outputs/apk/debug/SHA256SUMS.txt
@@ -108,7 +108,7 @@ jobs:
           java-version: '17'
       - uses: actions/download-artifact@v4
         with:
-          name: Namyran-Customer-Stage-v0.4.9-debug
+          name: Namyran-Customer-Stage-v0.4.10-debug
           path: smoke-apk
       - name: Verify live Stage metadata before emulator
         run: python3 audit/probe_stage_readonly.py

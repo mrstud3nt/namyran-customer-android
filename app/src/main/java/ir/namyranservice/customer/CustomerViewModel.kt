@@ -24,6 +24,19 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
     var verifiedEmail by mutableStateOf(""); private set
     var pendingEmail by mutableStateOf(""); private set
 
+    private val extensionApi = CoreApi()
+
+    suspend fun customerFeature(feature: String, payload: JSONObject): JSONObject {
+        val credentials = auth()
+        val response = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            extensionApi.customerFeature(feature, credentials.put("input", payload))
+        }
+        if (!loggedIn || mobile != credentials.optString("mobile")) {
+            throw CoreFailure("account_changed", "حساب کاربری تغییر کرده است.")
+        }
+        return response
+    }
+
     fun refreshEmail(email: String? = null) {
         if(!loggedIn) return
         val payload = auth().put("action", if(email == null) "status" else "send")
