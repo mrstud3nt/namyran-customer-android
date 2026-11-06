@@ -100,10 +100,9 @@ class MainActivity : ComponentActivity() {
     val pageScroll=rememberScrollState()
     LaunchedEffect(vm.tab,vm.creating,vm.step){pageScroll.scrollTo(0)}
     Scaffold(containerColor=MaterialTheme.colorScheme.background,bottomBar={
-        if(!vm.creating)NavigationBar {
-            listOf(Triple("home","خانه",Icons.Outlined.Home),Triple("requests","درخواست‌ها",Icons.Outlined.ReceiptLong),Triple("track","پیگیری",Icons.Outlined.Search),Triple("profile","حساب من",Icons.Outlined.PersonOutline),Triple("support","پشتیبانی",Icons.Outlined.SupportAgent)).forEach{(id,title,icon)->
-                NavigationBarItem(selected=vm.tab==id||(id=="track"&&vm.tab=="tracking"),onClick={if(!vm.busy){vm.tab=id;if(id=="requests")vm.loadRequests()}},icon={Icon(icon,null)},label={Text(title,style=MaterialTheme.typography.labelSmall,maxLines=1)})
-            }
+        if (!vm.creating) CustomerBottomNavigation(vm.tab, enabled = !vm.busy) { destination ->
+            vm.tab = destination
+            if (destination == "requests") vm.loadRequests()
         }
     }){padding->
         Column(Modifier.fillMaxSize().padding(padding).imePadding().verticalScroll(pageScroll).padding(horizontal=20.dp,vertical=16.dp),verticalArrangement=Arrangement.spacedBy(16.dp)){
