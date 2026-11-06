@@ -125,6 +125,14 @@ class CoreApi {
             return request("namyran-service/v1/$route", "POST", payload.toString(), images=images, imageStore=imageStore)
         }
     }
+    @Synchronized fun customerFeature(feature: String, payload: JSONObject): JSONObject {
+        require(feature in setOf("partner-stores", "support"))
+        return request("namyran-customer/v1/$feature", "POST", payload.toString())
+    }
+
+    @Synchronized fun customerEmail(payload: JSONObject, receipt: Boolean = false): JSONObject =
+        request("namyran-customer/v1/" + if(receipt) "receipt-email" else "profile-email", "POST", payload.toString())
+
     @Synchronized fun config(): JSONObject = request("namyran-customer/v1/config", "GET").also {
         if (it.optJSONObject("customerMobile")?.optInt("schema") != 1 || it.optString("revision").isBlank()) throw CoreFailure("config_schema", "نسخه اتصال Core پشتیبانی نمی‌شود.")
     }
