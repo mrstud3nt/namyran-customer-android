@@ -87,6 +87,16 @@ class MainActivity : ComponentActivity() {
     var showMenu by rememberSaveable { mutableStateOf(false) }
     var showHelp by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
+    var showRegion by rememberSaveable(vm.mobile) { mutableStateOf(false) }
+    var regionOffered by rememberSaveable(vm.mobile) { mutableStateOf(false) }
+    LaunchedEffect(vm.mobile) {
+        vm.restoreCustomerCity()
+        if (!regionOffered && vm.customerCity == null) {
+            regionOffered = true
+            showRegion = true
+        }
+    }
+    if (showRegion) CustomerRegionPicker(vm) { showRegion = false }
     val pageScroll=rememberScrollState()
     LaunchedEffect(vm.tab,vm.creating,vm.step){pageScroll.scrollTo(0)}
     Scaffold(containerColor=MaterialTheme.colorScheme.background,bottomBar={
@@ -112,6 +122,7 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                             DropdownMenuItem(text={Text(if(vm.loggedIn)"حساب و نشانی‌ها" else "ورود به ناحیه کاربری")},leadingIcon={Icon(Icons.Outlined.PersonOutline,null)},onClick={showMenu=false;vm.tab="profile"})
+                            DropdownMenuItem(text={Text("تغییر استان و شهر")},leadingIcon={Icon(Icons.Outlined.LocationOn,null)},onClick={showMenu=false;showRegion=true})
                             DropdownMenuItem(text={Text("راهنمای نامیران سرویس")},leadingIcon={Icon(Icons.Outlined.HelpOutline,null)},onClick={showMenu=false;showHelp=true})
                             DropdownMenuItem(text={Text("ارتباط با پشتیبانی")},leadingIcon={Icon(Icons.Outlined.SupportAgent,null)},onClick={showMenu=false;vm.tab="support"})
                         }
@@ -142,11 +153,11 @@ class MainActivity : ComponentActivity() {
             else when(vm.tab){
                 "home"->Home(vm)
                 "requests"->Requests(vm)
-                "profile"->Profile(vm)
+                "profile"->Profile(vm) { showRegion = true }
                 "receipt"->Receipt(vm)
                 "track"->TrackLookup(vm)
                 "tracking"->Tracking(vm)
-                "support"->Support(vm, { openSupport(context) })
+                "support"->Support(vm, { openSupport(context, it) }, { showRegion = true })
                 "partners"->Partners(vm)
             }
             Spacer(Modifier.height(16.dp))
@@ -163,10 +174,10 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private fun openSupport(context: Context) {
-    val intent=android.content.Intent(android.content.Intent.ACTION_DIAL,android.net.Uri.parse("tel:09375846363"))
+private fun openSupport(context: Context, number: String = "09375846363") {
+    val intent=android.content.Intent(android.content.Intent.ACTION_DIAL,android.net.Uri.fromParts("tel",number,null))
     if(runCatching { context.startActivity(intent) }.isFailure) {
-        android.widget.Toast.makeText(context,"پشتیبانی نامیران سرویس ۰۹۳۷۵۸۴۶۳۶۳",android.widget.Toast.LENGTH_LONG).show()
+        android.widget.Toast.makeText(context,"پشتیبانی نامیران سرویس · " + persianDigits(number),android.widget.Toast.LENGTH_LONG).show()
     }
 }
 
@@ -390,7 +401,7 @@ private fun requestState(row: JSONObject): Int = when(row.optString("status")){
     }
 }
 
-@Composable private fun Profile(vm: CustomerViewModel) {
+@Composable private fun Profile(vm: CustomerViewModel, changeRegion: () -> Unit) {
     val context = LocalContext.current
     var saved by remember(vm.mobile) { mutableStateOf(vm.localProfile()) }
     var editing by rememberSaveable { mutableStateOf(false) }
@@ -406,19 +417,40 @@ private fun requestState(row: JSONObject): Int = when(row.optString("status")){
             if(retained) photo=uri.toString() else feedback="دسترسی به این عکس ممکن نبود."
         }
     }
+    LaunchedEffect(vm.mobile, vm.busy) {
+        if (!vm.busy && vm.claimAccountDetailsLoad()) vm.loadAccountDetails()
+    }
     SectionTitle("حساب من")
     val displayName=saved.optString("name").ifBlank { vm.accountName }
-    Card(modifier=Modifier.fillMaxWidth(),shape=RoundedCornerShape(26.dp),
-        colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.primaryContainer)) {
-        Column(Modifier.fillMaxWidth().padding(20.dp),horizontalAlignment=Alignment.CenterHorizontally,
-            verticalArrangement=Arrangement.spacedBy(10.dp)) {
-            ProfilePhoto(displayName,saved.optString("photo"))
-            Text(displayName.ifBlank { "حساب مشتری" },style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
-            Text("شماره تأییدشده · " + vm.mobile,style=MaterialTheme.typography.bodyMedium)
-            OutlinedButton(onClick={
-                fullName=displayName;birthday=saved.optString("birthday");photo=saved.optString("photo");editing=true
-            }) { Icon(Icons.Outlined.Edit,null);Spacer(Modifier.width(8.dp));Text("ویرایش پروفایل") }
+    BrandBanner {
+        Text("کارت مشتری نامیران سرویس", color = Color(0xFF9AEAF4), style = MaterialTheme.typography.labelLarge)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            ProfilePhoto(displayName, saved.optString("photo"))
+            Column(Modifier.weight(1f)) {
+                Text(displayName.ifBlank { "حساب مشتری" }, color = Color.White,
+                    style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text("همراه تأییدشده · " + persianDigits(vm.mobile), color = Color.White)
+            }
         }
+        vm.customerCity?.let { Text("${it.province} · ${it.title}", color = Color.White) }
+        Button(onClick = {
+            fullName = displayName; birthday = saved.optString("birthday")
+            photo = saved.optString("photo"); editing = true
+        }, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = NamyranColors.navy)) {
+            Icon(Icons.Outlined.Edit, null); Spacer(Modifier.width(8.dp)); Text("ویرایش پروفایل")
+        }
+    }
+    FormCard("اطلاعات حساب", Icons.Outlined.Badge) {
+        Text("شماره همراه · " + persianDigits(vm.mobile))
+        Text(when {
+            vm.verifiedEmail.isNotBlank() -> "ایمیل تأییدشده · " + vm.verifiedEmail
+            vm.pendingEmail.isNotBlank() -> "ایمیل در انتظار تأیید · " + vm.pendingEmail
+            !vm.emailLoaded -> "وضعیت ایمیل هنوز دریافت نشده است."
+            else -> "ایمیل ثبت نشده است."
+        })
+        Text(vm.customerCity?.let { "شهر پیش‌فرض · ${it.province}، ${it.title}" } ?: "شهر پیش‌فرض انتخاب نشده است.")
+        TextButton(onClick = changeRegion) { Text("انتخاب یا تغییر استان و شهر") }
     }
     if(editing) {
         Panel("اطلاعات پروفایل","این اطلاعات و عکس روی همین گوشی ذخیره می‌شوند.")
@@ -437,18 +469,38 @@ private fun requestState(row: JSONObject): Int = when(row.optString("status")){
     }
     if(feedback.isNotBlank()) Text(feedback,color=MaterialTheme.colorScheme.primary)
     EmailSettings(vm)
-    SectionTitle("نشانی‌ها و درخواست‌ها")
-    Action("مشاهده درخواست‌های من",!vm.busy,vm::loadRequests)
-    OutlinedButton(onClick=vm::loadAddresses,enabled=!vm.busy,modifier=Modifier.fillMaxWidth()){Text("دریافت نشانی‌های ذخیره‌شده")}
-    vm.addresses.forEach { row ->
-        val address=runCatching{JSONObject(row.optString("data_json"))}.getOrElse{JSONObject()}
-        Panel(when(row.optString("label")){"home"->"خانه";"work"->"محل کار";else->"نشانی دیگر"},address.optString("address"))
+    FormCard("نشانی‌ها و موقعیت‌های ذخیره‌شده", Icons.Outlined.LocationOn) {
+        if (vm.addressesLoaded && vm.addresses.isEmpty()) Text("هنوز نشانی ذخیره‌شده‌ای ندارید.")
+        if (!vm.addressesLoaded && !vm.busy) Text("نشانی‌ها هنوز دریافت نشده‌اند.")
+        vm.addresses.forEach { row ->
+            val address = runCatching { JSONObject(row.optString("data_json")) }.getOrElse { row }
+            val lat = address.optDouble("latitude")
+            val lon = address.optDouble("longitude")
+            val label = when (row.optString("label")) {
+                "home" -> "خانه"
+                "work" -> "محل کار"
+                else -> "نشانی دیگر"
+            }
+            HorizontalDivider()
+            Text(label, fontWeight = FontWeight.Bold)
+            Text(address.optString("address"))
+            if (lat in -90.0..90.0 && lon in -180.0..180.0) {
+                Text("موقعیت ثبت شده است.", color = MaterialTheme.colorScheme.primary)
+                TextButton(onClick = {
+                    val uri = android.net.Uri.parse("geo:$lat,$lon?q=$lat,$lon")
+                    runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, uri)) }
+                        .onFailure { feedback = "برنامه‌ای برای نمایش نقشه پیدا نشد." }
+                }) { Text("نمایش موقعیت روی نقشه") }
+            }
+        }
+        TextButton(onClick = vm::loadAccountDetails, enabled = !vm.busy) { Text("به‌روزرسانی اطلاعات حساب") }
     }
+    Action("مشاهده درخواست‌های من",!vm.busy,vm::loadRequests)
     SectionTitle("تنظیمات")
     Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically) {
         Text("حالت تاریک");Switch(vm.dark,vm::setDarkMode)
     }
-    OutlinedButton(onClick={openSupport(context)},modifier=Modifier.fillMaxWidth()){Text("ارتباط با پشتیبانی")}
+    OutlinedButton(onClick={vm.tab="support"},modifier=Modifier.fillMaxWidth()){Text("ارتباط با پشتیبانی")}
     OutlinedButton(onClick=vm::logout,enabled=!vm.busy,modifier=Modifier.fillMaxWidth()){Text("خروج از حساب")}
 }
 

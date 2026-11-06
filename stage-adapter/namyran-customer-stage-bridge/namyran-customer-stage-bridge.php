@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Namyran Customer Stage Bridge
  * Description: Native customer metadata and verified email from the installed Core; Stage only.
- * Version: 0.2.0
+ * Version: 0.2.1
  */
 if (!defined('ABSPATH')) exit;
 final class Namyran_Customer_Stage_Bridge {
@@ -21,6 +21,30 @@ final class Namyran_Customer_Stage_Bridge {
     public static function response(array $data): WP_REST_Response {
         $r=new WP_REST_Response($data);$r->header('Cache-Control','no-store, private');return $r;
     }
+    private static function customer_geography(): array {
+        $rows = array();
+        foreach (NSC_Geo_Data::provinces() as $province_id => $province) {
+            foreach ($province['cities'] as $city_id => $title) {
+                $rows[] = array('province_id' => $province_id, 'province' => $province['name'], 'id' => $city_id, 'title' => $title);
+            }
+        }
+        return $rows;
+    }
+    private static function public_support(array $geography): array {
+        // This option contains only explicitly approved public customer-facing numbers.
+        $raw = get_option('nsc_customer_public_support', array());
+        if (!is_array($raw)) $raw = array();
+        $valid = static fn($value) => is_string($value) && preg_match('/^[+]?[0-9]{5,15}$/D', $value);
+        $result = array('cities' => array(), 'provinces' => array());
+        if ($valid($raw['national'] ?? null)) $result['national'] = $raw['national'];
+        foreach (array('cities' => 'id', 'provinces' => 'province_id') as $scope => $key) {
+            if (!is_array($raw[$scope] ?? null)) continue;
+            foreach (array_unique(array_column($geography, $key)) as $id) {
+                if ($valid($raw[$scope][$id] ?? null)) $result[$scope][$id] = $raw[$scope][$id];
+            }
+        }
+        return $result;
+    }
     public static function config() {
         // Render only to obtain Core's own current localization. Never duplicate catalog/settings.
         do_shortcode('[namyran_service_request]');
@@ -35,10 +59,14 @@ final class Namyran_Customer_Stage_Bridge {
             $cities[]=array('id'=>(string)$key,'title'=>(string)$city['name'],'groups'=>$groups);
         }
         $config['customerMobile']=array('schema'=>1,'coreVersion'=>NSC_VERSION,'cities'=>$cities,'modelMode'=>'free_text','problemMode'=>'free_text','scheduleKind'=>'customer_preference','tvVipSizes'=>array('85 اینچ','100 اینچ'),'maxOrderItems'=>20);
+        $geography = self::customer_geography();
+        $support = self::public_support($geography);
+        $config['customerMobile']['geography'] = $geography;
+        $config['customerMobile']['support'] = $support;
         // Fresh time and catalog digest allow the client to invalidate its selections.
         $config['locationRequired']=in_array($config['locationRequired']??false,array(true,1,'1','true'),true);
         $config['serverNow']=current_datetime()->format(DATE_ATOM);
-        $config['revision']=hash('sha256',wp_json_encode(array($config['categories'],$config['services'],$config['brands'],$config['installBrands'],$config['tvInstall'],$cities)));
+        $config['revision']=hash('sha256',wp_json_encode(array($config['categories'],$config['services'],$config['brands'],$config['installBrands'],$config['tvInstall'],$cities,$geography,$support)));
         unset($config['publicApiNonce']); // Native clients use the existing uncached bootstrap.
         return self::response($config);
     }

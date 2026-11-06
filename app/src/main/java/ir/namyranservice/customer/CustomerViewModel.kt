@@ -44,6 +44,7 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
         launchTask {
             val response = api.customerEmail(payload)
             return@launchTask {
+                emailLoaded = true
                 verifiedEmail = response.optString("verified_email")
                 pendingEmail = response.optString("pending_email")
                 if(email != null && pendingEmail.isNotBlank())
@@ -85,6 +86,44 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
         runCatching { JSONObject(catalogPrefs.getString("catalog", null) ?: "") }
             .getOrNull()?.takeIf { it.optJSONObject("customerMobile")?.optInt("schema") == 1 }
     ); private set
+    private val geography = runCatching {
+        application.assets.open("core-geography.json").bufferedReader().use { JSONObject(it.readText()) }
+    }.getOrElse { JSONObject() }
+    internal val customerCities: List<CustomerCity>
+        get() = (config?.optJSONObject("customerMobile")?.optJSONArray("geography")
+            ?.objects()?.takeIf { it.isNotEmpty() } ?: geography.array("cities").objects()).mapNotNull {
+            val city = CustomerCity(it.optString("id"), it.optString("title"), it.optString("province_id"), it.optString("province"))
+            city.takeIf { value -> listOf(value.id, value.title, value.provinceId, value.province).none(String::isBlank) }
+        }
+    internal var customerCity by mutableStateOf<CustomerCity?>(null)
+        private set
+    internal fun restoreCustomerCity() {
+        val saved = store.read("customer_city_" + mobile)
+        customerCity = customerCities.firstOrNull {
+            it.id == saved?.optString("id") && it.provinceId == saved?.optString("province")
+        }
+    }
+    internal fun saveCustomerCity(selection: CustomerCity): Boolean {
+        if (!loggedIn || selection !in customerCities) return false
+        return runCatching {
+            store.write("customer_city_" + mobile, JSONObject().put("id", selection.id).put("province", selection.provinceId))
+            customerCity = selection
+        }.isSuccess
+    }
+    internal fun localSupport(): Pair<String, String>? {
+        val selection = customerCity ?: return null
+        val directory = config?.optJSONObject("customerMobile")?.optJSONObject("support") ?: return null
+        val cityPhone = supportNumber(directory.optJSONObject("cities")?.optString(selection.id))
+        if (cityPhone != null) return selection.title to cityPhone
+        val provincePhone = supportNumber(directory.optJSONObject("provinces")?.optString(selection.provinceId))
+        return provincePhone?.let { selection.province to it }
+    }
+    internal fun nationalSupport(): String = supportNumber(config?.optJSONObject("customerMobile")
+        ?.optJSONObject("support")?.optString("national")) ?: "09375846363"
+
+    private fun supportNumber(raw: String?): String? = normalizedDigits(raw.orEmpty()).trim()
+        .takeIf { it.matches(Regex("[+]?[0-9]{5,15}")) }
+
     var mobile by mutableStateOf(""); private set
     private var token by mutableStateOf("")
     val hasSavedSession: Boolean get() = token.isNotBlank()
@@ -181,7 +220,7 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
     fun dismissError() { error="" }
     private fun auth() = JSONObject().put("mobile",mobile).put("verification_token",token)
     private fun clearSession() {
-        tab="home"; verifiedEmail="";pendingEmail="";token=""; sessionTtlSeconds=0; otpSent=false; loggedIn=false; accountName=""; requests=emptyList();addresses=emptyList();tracking=null
+        tab="home"; customerCity=null; accountDetailsRequested=false; emailLoaded=false; verifiedEmail="";pendingEmail="";token=""; sessionTtlSeconds=0; otpSent=false; loggedIn=false; accountName=""; requests=emptyList();addresses=emptyList();addressesLoaded=false;tracking=null
         images=emptyList();if(pending==null)imageStore.clear();receiptInAccount=false;requestsLoaded=false;name="";address="";description="";city="";area="";latitude="";longitude="";accuracy="";model="";item=JSONObject();items=emptyList();terms=false;creating=false;store.write("draft",null);store.write("receipt",null);store.write("session",null);store.write("address_operation",null);api.clearCookies()
     }
     fun refresh() {
@@ -282,7 +321,34 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
     }
     fun logout() { launchTask { api.post("otp/logout",auth()); return@launchTask {clearSession();tab="home";message="از حساب خارج شدید."} } }
     fun loadRequests() { if(!loggedIn){tab="profile";return};launchTask {val r=api.post("my-requests",auth()); return@launchTask {requests=r.array("requests").objects();requestsLoaded=true;tab="requests";receipt?.let { rc->receiptInAccount=requests.any { it.optString("tracking_code")==rc.optString("tracking_code") }}} } }
-    fun loadAddresses() { if(!loggedIn)return;launchTask {val r=api.post("customer-addresses",auth().put("action","list"));return@launchTask {addresses=r.array("rows").objects()}} }
+    private var accountDetailsRequested = false
+    fun claimAccountDetailsLoad(): Boolean {
+        if (accountDetailsRequested) return false
+        accountDetailsRequested = true
+        return true
+    }
+    var emailLoaded by mutableStateOf(false)
+        private set
+    var addressesLoaded by mutableStateOf(false)
+        private set
+
+    fun loadAccountDetails() {
+        if (!loggedIn) return
+        launchTask {
+            val addressesResult = runCatching { api.post("customer-addresses", auth().put("action", "list")).array("rows").objects() }
+            val emailResult = runCatching { api.customerEmail(auth().put("action", "status")) }
+            return@launchTask {
+                addressesResult.onSuccess { addresses = it; addressesLoaded = true }
+                emailResult.onSuccess {
+                    emailLoaded = true
+                    verifiedEmail = it.optString("verified_email")
+                    pendingEmail = it.optString("pending_email")
+                }
+                if (addressesResult.isFailure || emailResult.isFailure) message = "بخشی از اطلاعات حساب به‌روز نشد. دوباره تلاش کنید."
+            }
+        }
+    }
+    fun loadAddresses() { if(!loggedIn)return;launchTask {val r=api.post("customer-addresses",auth().put("action","list"));return@launchTask {addresses=r.array("rows").objects();addressesLoaded=true}} }
     fun saveRequestAddress(label: String) {
         if (!loggedIn || address.trim().length < 8 || latitude.toDoubleOrNull() == null || longitude.toDoubleOrNull() == null) {
             error = "برای ذخیره نشانی، آدرس دقیق و موقعیت آن را وارد کنید."
@@ -337,6 +403,11 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
             }
         } else null
         if(name.isBlank()) name = localProfile().optString("name").ifBlank { accountName }
+        if (city.isBlank()) {
+            val preferred = customerCity?.id
+            if (preferred != null && catalog.optJSONObject("customerMobile")?.array("cities")
+                    ?.objects()?.any { it.optString("id") == preferred } == true) city = preferred
+        }
         receipt=null;receiptInAccount=false;creating=true;step=0
         if (serviceId != null && item.optString("service_type") != serviceId) changeItem("service_type",serviceId)
         if (category != null && selectedDevice != null) {

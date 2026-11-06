@@ -187,7 +187,7 @@ private fun PartnerLogo(url: String) {
 private fun android.graphics.Bitmap.toComposeBitmap() = asImageBitmap()
 
 @Composable
-internal fun Support(vm: CustomerViewModel, onCall: () -> Unit) {
+internal fun Support(vm: CustomerViewModel, onCall: (String) -> Unit, onChangeCity: () -> Unit) {
     var page by rememberSaveable { mutableStateOf("home") }
     var ticket by rememberSaveable { mutableStateOf("") }
     var subject by rememberSaveable { mutableStateOf("") }
@@ -243,7 +243,23 @@ internal fun Support(vm: CustomerViewModel, onCall: () -> Unit) {
             TextButton(onClick = { open("tickets") }) { Text("مشاهده همه تیکت‌ها") }
         }
         FormCard("تماس با پشتیبانی", Icons.Outlined.Call) {
-            OutlinedButton(onClick = onCall, modifier = Modifier.fillMaxWidth()) { Text("تماس تلفنی") }
+            val national = vm.nationalSupport()
+            Text("پشتیبانی سراسری", fontWeight = FontWeight.Bold)
+            Text("ارجاع و پیگیری درخواست‌های سراسر ایران")
+            OutlinedButton(onClick = { onCall(national) }, modifier = Modifier.fillMaxWidth()) {
+                Text("تماس سراسری · " + persianDigits(national))
+            }
+            HorizontalDivider()
+            val city = vm.customerCity
+            val local = vm.localSupport()
+            Text(if (local == null) "پشتیبانی محلی" else "پشتیبانی ${local.first}", fontWeight = FontWeight.Bold)
+            Text(city?.let { "${it.province} · ${it.title}" } ?: "استان و شهر خود را انتخاب کنید.")
+            if (local != null) {
+                OutlinedButton(onClick = { onCall(local.second) }, modifier = Modifier.fillMaxWidth()) {
+                    Text("تماس محلی · " + persianDigits(local.second))
+                }
+            } else if (city != null) Text("شمارهٔ محلی برای این محدوده در دسترس نیست.")
+            TextButton(onClick = onChangeCity) { Text("انتخاب یا تغییر شهر") }
         }
         return
     }
