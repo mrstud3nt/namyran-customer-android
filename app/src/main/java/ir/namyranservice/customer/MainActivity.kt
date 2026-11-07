@@ -78,15 +78,19 @@ class MainActivity : ComponentActivity() {
 @Composable private fun CustomerApp(vm:CustomerViewModel) {
     BackHandler(vm.loggedIn && (vm.creating || vm.tab in listOf("tracking","receipt","partners"))) { if(!vm.busy){if(vm.creating&&vm.step>0)vm.step-- else {vm.creating=false;vm.tab="home"};vm.saveDraft()} }
     var entranceComplete by rememberSaveable { mutableStateOf(false) }
+    var startupFinished by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         // Allow the short entrance animation to complete; never dismiss while
         // the view model reports a pending operation.
         delay(650)
         entranceComplete = true
     }
+    LaunchedEffect(entranceComplete, vm.busy) {
+        if (entranceComplete && !vm.busy) startupFinished = true
+    }
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
         NamyranTheme(vm.dark) {
-            if (!entranceComplete || vm.busy) {
+            if (!startupFinished) {
                 NamyranStartupScreen()
             } else if (vm.loggedIn) CustomerWorkspace(vm)
             else LoginScreen(vm)
