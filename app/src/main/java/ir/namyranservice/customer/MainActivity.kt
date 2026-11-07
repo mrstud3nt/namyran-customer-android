@@ -27,6 +27,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import kotlinx.coroutines.delay
+import ir.namyranservice.customer.ui.NamyranStartupScreen
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -75,9 +77,18 @@ class MainActivity : ComponentActivity() {
 
 @Composable private fun CustomerApp(vm:CustomerViewModel) {
     BackHandler(vm.loggedIn && (vm.creating || vm.tab in listOf("tracking","receipt","partners"))) { if(!vm.busy){if(vm.creating&&vm.step>0)vm.step-- else {vm.creating=false;vm.tab="home"};vm.saveDraft()} }
+    var entranceComplete by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        // Allow the short entrance animation to complete; never dismiss while
+        // the view model reports a pending operation.
+        delay(650)
+        entranceComplete = true
+    }
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
         NamyranTheme(vm.dark) {
-            if (vm.loggedIn) CustomerWorkspace(vm)
+            if (!entranceComplete || vm.busy) {
+                NamyranStartupScreen()
+            } else if (vm.loggedIn) CustomerWorkspace(vm)
             else LoginScreen(vm)
         }
     }
