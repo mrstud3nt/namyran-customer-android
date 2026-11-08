@@ -20,7 +20,7 @@ jobs:
         run: echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
       - uses: gradle/actions/setup-gradle@v4
       - name: Build stage debug APK
-        run: bash ./gradlew :app:assembleDebug --no-daemon
+        run: gradle :app:assembleDebug --no-daemon
       - uses: actions/upload-artifact@v4
         with:
           name: Namyran-Customer-Stage-native-splash-debug
