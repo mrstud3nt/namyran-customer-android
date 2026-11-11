@@ -357,8 +357,8 @@ private fun AuthBrand() {
 }
 
 @Composable
-private fun Assurance(icon: ImageVector, title: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+private fun RowScope.Assurance(icon: ImageVector, title: String) {
+    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
         Icon(icon, null, Modifier.size(22.dp), tint = Gold)
         Text(title, style = MaterialTheme.typography.labelSmall, color = Color(0xFFE4EAF0), textAlign = TextAlign.Center)
     }
