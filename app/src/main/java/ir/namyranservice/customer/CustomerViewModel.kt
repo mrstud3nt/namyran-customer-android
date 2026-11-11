@@ -186,6 +186,14 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
     var accuracy by mutableStateOf("")
     var terms by mutableStateOf(false)
 
+    var lastFailureCode by mutableStateOf("")
+        private set
+    var otpExpiresAt by mutableLongStateOf(0L)
+        private set
+    var otpGeneration by mutableIntStateOf(0)
+        private set
+    private var lastSessionCheck = 0L
+
     init {
         val saved = store.read("session")
         if (saved != null && saved.optLong("expires") > System.currentTimeMillis()) {
@@ -204,7 +212,7 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
     }
     private fun launchTask(task: () -> (() -> Unit)) {
         if (busy) return
-        busy = true; error = ""; message = ""
+        busy = true; error = ""; lastFailureCode = ""; message = ""
         executor.execute {
             try { val apply = task(); main.post { apply(); busy=false } }
             catch (e: Exception) {
@@ -212,12 +220,17 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
                 main.post {
                 if(e is CoreFailure&&pending!=null&&NativeRules.rejectedBeforeInsert(e.code)){pending=null;store.write("pending",null);creating=true;step=0}
                 if (e is CoreFailure && e.code in setOf("nsc_customer_session_denied","nsc_session_expired","nsc_my_requests_auth")) clearSession()
+                if (e is CoreFailure && e.code == "nsc_otp_cooldown") {
+                    val seconds = e.details.optLong("remaining_seconds", 60).coerceIn(1, 900)
+                    resendAt = System.currentTimeMillis() + seconds * 1000
+                }
+                lastFailureCode = if (e is CoreFailure) e.code else "network_error"
                 error = when(e) { is CoreFailure -> e.message ?: "خطای Core"; else -> "ارتباط با Stage کامل نشد؛ اتصال اینترنت را بررسی و دوباره تلاش کنید." }
                 busy=false
             } }
         }
     }
-    fun dismissError() { error="" }
+    fun dismissError() { error=""; lastFailureCode="" }
     private fun auth() = JSONObject().put("mobile",mobile).put("verification_token",token)
     private fun clearSession() {
         tab="home"; customerCity=null; accountDetailsRequested=false; emailLoaded=false; verifiedEmail="";pendingEmail="";token=""; sessionTtlSeconds=0; otpSent=false; loggedIn=false; accountName=""; requests=emptyList();addresses=emptyList();addressesLoaded=false;tracking=null
@@ -226,6 +239,8 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
     fun refresh() {
         if (token.isBlank()) return
         refreshCatalog()
+        val elapsed = android.os.SystemClock.elapsedRealtime()
+        if (loggedIn && lastSessionCheck > 0 && elapsed - lastSessionCheck < 60_000) return
         launchTask {
             val account = try {
                 api.post("otp/session", auth().put("purpose", "customer_service"))
@@ -251,7 +266,7 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
             // A successful account-scoped read also proves the existing credential
             // when Stage cannot return the optional session metadata.
             val credentials = auth().put("verification_token", renewedToken ?: token)
-            val rows = try {
+            val rows = if (renewedToken != null) null else try {
                 val response = api.post("my-requests", credentials)
                 response.optJSONArray("requests")?.takeIf { response.optBoolean("success") }?.objects()
             } catch (e: CoreFailure) {
@@ -269,14 +284,78 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
             return@launchTask {
                 if (renewedToken != null) token = renewedToken
                 loggedIn = true
+                lastSessionCheck = android.os.SystemClock.elapsedRealtime()
                 if (rows != null) { requests = rows; requestsLoaded = true }
                 if (matchingAccount) {
                     accountName = account.optString("customer_name")
                     if (name.isBlank()) name = accountName
                 }
+                if (rows == null) main.post { refreshHomeRequests() }
             }
         }
     }
+
+    private fun refreshHomeRequests() {
+        if (!loggedIn) return
+        launchTask {
+            val response = api.post("my-requests", auth())
+            if (!response.optBoolean("success") || response.optJSONArray("requests") == null)
+                throw CoreFailure("requests_response_invalid", "دریافت درخواست‌ها کامل نشد.")
+            return@launchTask { requests = response.array("requests").objects(); requestsLoaded = true }
+        }
+    }
+
+    suspend fun signInWithGoogle(context: android.content.Context) {
+        if (loggedIn || hasSavedSession || busy) return
+        dismissError()
+        try {
+            val challenge = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { api.google("challenge") }
+            val client = challenge.getString("client_id")
+            val nonce = challenge.getString("nonce")
+            val csrf = challenge.getString("csrf")
+            require(client.matches(Regex("[A-Za-z0-9-]+[.]apps[.]googleusercontent[.]com")) && nonce.length in 32..128)
+            val option = com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption.Builder(client)
+                .setNonce(nonce).build()
+            val request = androidx.credentials.GetCredentialRequest.Builder().addCredentialOption(option).build()
+            val credential = androidx.credentials.CredentialManager.create(context).getCredential(context, request).credential
+            if (credential !is androidx.credentials.CustomCredential ||
+                credential.type != com.google.android.libraries.identity.googleid.GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL)
+                throw CoreFailure("google_credential_invalid", "پاسخ حساب گوگل معتبر نیست.")
+            val idToken = com.google.android.libraries.identity.googleid.GoogleIdTokenCredential.createFrom(credential.data).idToken
+            val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                api.google("login", mapOf("csrf" to csrf, "credential" to idToken))
+            }
+            if (!result.getBoolean("linked")) {
+                message = "حساب گوگل تأیید شد. برای اتصال به پرونده‌ها، شماره همراه را با پیامک تأیید کنید."
+                return
+            }
+            val session = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                api.post("otp/session", JSONObject().put("purpose", "customer_service"))
+            }
+            val number = normalizedDigits(session.optString("mobile"))
+            val credentialToken = session.optString("verification_token")
+            if (!session.optBoolean("success") || !number.matches(Regex("09[0-9]{9}")) ||
+                !credentialToken.matches(Regex("[A-Za-z0-9]{48}")) || session.optString("purpose") != "customer_service")
+                throw CoreFailure("google_session_invalid", "نشست حساب گوگل تأیید نشد.")
+            val ttl = api.sessionLifetime(credentialToken)
+            if (ttl > 0) persistSession(number, credentialToken, ttl)
+            mobile = number; token = credentialToken; sessionTtlSeconds = ttl
+            loggedIn = true; otpSent = false; tab = "home"
+            accountName = session.optString("customer_name")
+            lastSessionCheck = android.os.SystemClock.elapsedRealtime()
+            refreshCatalog()
+            main.post { refreshHomeRequests() }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: androidx.credentials.exceptions.GetCredentialCancellationException) {
+            message = "انتخاب حساب گوگل لغو شد."
+        } catch (e: Exception) {
+            lastFailureCode = if (e is CoreFailure) e.code else "google_unavailable"
+            error = if (e is CoreFailure) e.message.orEmpty() else
+                "ورود گوگل کامل نشد. می‌توانید با پیامک وارد شوید."
+        }
+    }
+
     fun sendOtp(number: String, remember: Boolean = false) {
         if (loggedIn || hasSavedSession) return
         val numberClean=normalizedDigits(number).filter { it.isDigit() }
@@ -287,7 +366,8 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
             if(!r.optBoolean("success")) throw CoreFailure("otp_failed","ارسال کد تأیید نشد.")
             if(r.optBoolean("dev_mode")) throw CoreFailure("otp_dev_mode","Core در حالت کد آزمایشی است؛ ارسال واقعی پیامک تأیید نشد. تنظیم ارسال واقعی باید در Stage اصلاح شود.")
             val until=System.currentTimeMillis()+r.optInt("resend_in",90)*1000L
-            return@launchTask { mobile=numberClean;rememberMobile(remember,numberClean);otpSent=true;resendAt=until;message=r.optString("message") }
+            val expiresAt = System.currentTimeMillis() + r.getLong("expires_in").coerceIn(1, 600) * 1000
+            return@launchTask { otpExpiresAt=expiresAt; otpGeneration++; mobile=numberClean;rememberMobile(remember,numberClean);otpSent=true;resendAt=until;message=r.optString("message") }
         }
     }
     fun editOtpMobile() {
@@ -304,7 +384,7 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
         launchTask {
             val r=api.post("otp/verify",JSONObject().put("mobile",mobile).put("code",normalized).put("purpose","customer_service"))
             val t=r.optString("verification_token")
-            if(!r.optBoolean("success")||t.isBlank())throw CoreFailure("otp_verify_invalid","نشست معتبر دریافت نشد.")
+            if(!r.optBoolean("success")||!t.matches(Regex("[A-Za-z0-9]{48}")))throw CoreFailure("otp_verify_invalid","نشست معتبر دریافت نشد.")
             val ttl = r.getLong("verified_for")
             require(ttl > 0)
             persistSession(mobile, t, ttl)

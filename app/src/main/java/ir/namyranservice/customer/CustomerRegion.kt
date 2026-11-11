@@ -60,8 +60,15 @@ internal fun CustomerRegionPicker(vm: CustomerViewModel, onClose: () -> Unit) {
             } finally { finding = false }
         }
     }
-    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
-        if (it) locate() else status = "می‌توانید استان و شهر را دستی انتخاب کنید."
+    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        if (it[Manifest.permission.ACCESS_COARSE_LOCATION] == true || it[Manifest.permission.ACCESS_FINE_LOCATION] == true) locate() else status = "می‌توانید استان و شهر را دستی انتخاب کنید."
+    }
+    var autoStarted by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        if (!autoStarted && vm.customerCity == null) {
+            autoStarted = true
+            if (context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) locate()
+        }
     }
     AlertDialog(
         onDismissRequest = onClose,
@@ -73,7 +80,7 @@ internal fun CustomerRegionPicker(vm: CustomerViewModel, onClose: () -> Unit) {
                 Text("شهر پیش‌فرض برای پیشنهاد محل خدمت و نمایش شماره پشتیبانی شعبه استفاده می‌شود.")
                 OutlinedButton(onClick = {
                     if (context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) locate()
-                    else permission.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+                    else permission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
                 }, enabled = !finding, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Outlined.MyLocation, null)
                     Spacer(Modifier.width(8.dp))
@@ -103,24 +110,53 @@ internal fun CustomerRegionPicker(vm: CustomerViewModel, onClose: () -> Unit) {
 private fun normalizePlace(value: String): String = value.lowercase(Locale.ROOT)
     .replace('ي', 'ی').replace('ك', 'ک').filter { it.isLetterOrDigit() }
 
+internal fun matchCustomerCity(names: List<String>, province: String, cities: List<CustomerCity>): CustomerCity? {
+    val normalizedProvince = normalizePlace(province.replace("استان", "").replace("Province", "", true))
+    for (name in names) {
+        val normalized = normalizePlace(name)
+        if (normalized.isEmpty()) continue
+        val matches = cities.filter { normalized == normalizePlace(it.title) || normalized == normalizePlace(it.id) }
+        val inProvince = matches.filter {
+            normalizedProvince == normalizePlace(it.province) || normalizedProvince == normalizePlace(it.provinceId)
+        }
+        if (inProvince.size == 1) return inProvince.single()
+        if (matches.size == 1) return matches.single()
+    }
+    return null
+}
+
 private suspend fun findCustomerCity(context: Context, cities: List<CustomerCity>): CustomerCity? {
     if (!Geocoder.isPresent()) return null
-    val point = withTimeoutOrNull(12_000) { currentPoint(context) } ?: return null
-    val result = try {
-        withContext(Dispatchers.IO) {
-            @Suppress("DEPRECATION")
-            Geocoder(context, Locale.forLanguageTag("fa-IR")).getFromLocation(point.latitude, point.longitude, 4).orEmpty()
+    val point = withTimeoutOrNull(15_000) { currentPoint(context) } ?: return null
+    for (locale in listOf(Locale.forLanguageTag("fa-IR"), Locale.ENGLISH)) {
+        val result = try {
+            val geocoder = Geocoder(context, locale)
+            if (android.os.Build.VERSION.SDK_INT >= 33) {
+                withTimeoutOrNull(8_000) {
+                    suspendCancellableCoroutine<List<android.location.Address>> { continuation ->
+                        geocoder.getFromLocation(point.latitude, point.longitude, 5,
+                            object : Geocoder.GeocodeListener {
+                                override fun onGeocode(addresses: MutableList<android.location.Address>) {
+                                    if (continuation.isActive) continuation.resume(addresses)
+                                }
+                                override fun onError(errorMessage: String?) {
+                                    if (continuation.isActive) continuation.resume(emptyList())
+                                }
+                            })
+                    }
+                }.orEmpty()
+            } else {
+                withContext(Dispatchers.IO) {
+                    @Suppress("DEPRECATION")
+                    geocoder.getFromLocation(point.latitude, point.longitude, 5).orEmpty()
+                }
+            }
+        } catch (e: CancellationException) { throw e } catch (_: Exception) { emptyList() }
+        for (address in result) {
+            if (!address.countryCode.equals("IR", ignoreCase = true)) continue
+            matchCustomerCity(listOfNotNull(address.locality, address.subAdminArea, address.subLocality),
+                address.adminArea.orEmpty(), cities)?.let { return it }
         }
-    } catch (e: CancellationException) { throw e } catch (_: Exception) { return null }
-    for (address in result) {
-        if (!address.countryCode.equals("IR", ignoreCase = true)) continue
-        val locality = normalizePlace(address.locality.orEmpty())
-        if (locality.isEmpty()) continue
-        val province = normalizePlace(address.adminArea.orEmpty().replace("استان", "").replace("Province", "", true))
-        val matching = cities.filter { locality == normalizePlace(it.title) || locality == normalizePlace(it.id) }
-        if (matching.size == 1) return matching.single()
-        matching.singleOrNull { province == normalizePlace(it.province) || province == normalizePlace(it.provinceId) }
-            ?.let { return it }
     }
     return null
 }
@@ -145,11 +181,21 @@ private suspend fun currentPoint(context: Context): Location? = suspendCancellab
         @Deprecated("Legacy callback")
         override fun onStatusChanged(provider: String?, status: Int, extras: android.os.Bundle?) = Unit
     }
-    val started = runCatching {
-        val provider = listOf(LocationManager.NETWORK_PROVIDER, LocationManager.GPS_PROVIDER)
-            .first { manager.isProviderEnabled(it) }
-        manager.requestLocationUpdates(provider, 0, 0f, listener, Looper.getMainLooper())
-    }.isSuccess
+    val providers = listOf(LocationManager.NETWORK_PROVIDER, LocationManager.GPS_PROVIDER)
+        .filter { runCatching { manager.isProviderEnabled(it) }.getOrDefault(false) }
+    val recent = providers.mapNotNull { runCatching { manager.getLastKnownLocation(it) }.getOrNull() }
+        .filter {
+            val age = android.os.SystemClock.elapsedRealtimeNanos() - it.elapsedRealtimeNanos
+            age in 0..120_000_000_000L && it.hasAccuracy() && it.accuracy <= 3000
+        }.maxByOrNull { it.elapsedRealtimeNanos }
+    if (recent != null) {
+        continuation.resume(recent)
+        return@suspendCancellableCoroutine
+    }
+    var started = false
+    providers.forEach { provider ->
+        if (runCatching { manager.requestLocationUpdates(provider, 0, 0f, listener, Looper.getMainLooper()) }.isSuccess) started = true
+    }
     if (started) continuation.invokeOnCancellation { manager.removeUpdates(listener) }
     else continuation.resume(null)
 }

@@ -104,7 +104,7 @@ class CoreApi {
             val json = try { JSONObject(String(bytes, Charsets.UTF_8)) } catch (_: Exception) {
                 throw CoreFailure("non_json_$status", if (status == 403) "دسترسی Stage توسط محافظ سرور مسدود شده است." else "پاسخ معتبر از Stage دریافت نشد.")
             }
-            if (status !in 200..299) throw CoreFailure(json.optString("code", "http_$status"), json.optString("message", "خطای ارتباط با سرور"), json.optJSONObject("data") ?: JSONObject())
+            if (status !in 200..299) throw CoreFailure(json.optString("code", "http_$status"), json.optString("message", json.optJSONObject("data")?.optString("message") ?: "خطای ارتباط با سرور"), json.optJSONObject("data") ?: JSONObject())
             return json
         } finally { connection.disconnect() }
     }
@@ -125,6 +125,20 @@ class CoreApi {
             return request("namyran-service/v1/$route", "POST", payload.toString(), images=images, imageStore=imageStore)
         }
     }
+    @Synchronized fun google(action: String, fields: Map<String, String> = emptyMap()): JSONObject {
+        require(action in setOf("challenge", "login", "cancel"))
+        val body = (mapOf("action" to "nsc_google_$action") + fields).entries.joinToString("&") {
+            URLEncoder.encode(it.key, "UTF-8") + "=" + URLEncoder.encode(it.value, "UTF-8")
+        }
+        val response = request("/wp-admin/admin-ajax.php", "POST", body, form = true)
+        if (!response.optBoolean("success")) throw CoreFailure("google_unavailable",
+            response.optJSONObject("data")?.optString("message").orEmpty().ifBlank { "ورود گوگل در دسترس نیست. با پیامک وارد شوید." })
+        return response.getJSONObject("data")
+    }
+
+    @Synchronized fun sessionLifetime(token: String): Long =
+        cookies.cookieStore.cookies.firstOrNull { it.value == token && !it.hasExpired() }?.maxAge?.coerceAtLeast(0) ?: 0
+
     @Synchronized fun customerFeature(feature: String, payload: JSONObject): JSONObject {
         require(feature in setOf("partner-stores", "support"))
         return request("namyran-customer/v1/$feature", "POST", payload.toString())
