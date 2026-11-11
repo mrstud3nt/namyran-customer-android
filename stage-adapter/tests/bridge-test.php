@@ -5,6 +5,7 @@ $GLOBALS['host']='stage.namyranservice.ir';$GLOBALS['title']='Current device';$G
 function home_url($path='/'){return 'https://'.$GLOBALS['host'].$path;}
 function site_url($path='/'){return home_url($path);}
 function wp_parse_url($value){return parse_url($value);}
+function get_option($key,$default){return $GLOBALS[$key]??$default;}
 function wp_json_encode($value){return json_encode($value);}
 function add_action(...$args){}
 function register_rest_route(...$args){}
@@ -22,7 +23,9 @@ class NSC_Utils{
  static function format_jalali_date($date){return 'converted-by-core';}
 }
 class NSC_Catalog{}
-class NSC_Geo_Data{static function active_service_catalog(){return array('active'=>array('name'=>'Active city','private_admin_field'=>'secret','groups'=>array(array('id'=>'g','name'=>'Group','areas'=>array(array('id'=>'a','name'=>'Area','private'=>'secret'))))));}}
+class NSC_Geo_Data{
+ static function provinces(){return array('province'=>array('name'=>'Province','cities'=>array('active'=>'Active city')));}
+static function active_service_catalog(){return array('active'=>array('name'=>'Active city','private_admin_field'=>'secret','groups'=>array(array('id'=>'g','name'=>'Group','areas'=>array(array('id'=>'a','name'=>'Area','private'=>'secret'))))));}}
 require dirname(__DIR__).'/namyran-customer-stage-bridge/namyran-customer-stage-bridge.php';
 function expect($value,$label){if(!$value)throw new RuntimeException($label);echo "PASS $label\n";}
 expect(Namyran_Customer_Stage_Bridge::enabled(),'Stage enabled');
@@ -33,3 +36,7 @@ $r=Namyran_Customer_Stage_Bridge::config();expect(!isset($r->data['publicApiNonc
 $old=$r->data['revision'];$GLOBALS['title']='Changed in Core';$r=Namyran_Customer_Stage_Bridge::config();expect($r->data['revision']!==$old,'Core changes reflected without app update');
 expect(Namyran_Customer_Stage_Bridge::schedule(new WP_REST_Request('bad')) instanceof WP_Error,'Invalid date refused');
 $r=Namyran_Customer_Stage_Bridge::schedule(new WP_REST_Request('2026-11-05'));expect($r->data['slots'][0]['available']===true,'Availability delegates to Core');expect($r->data['kind']==='customer_preference','No reservation capacity invented');
+$GLOBALS['nsc_customer_public_support']=array('national'=>'11111111','cities'=>array('active'=>'22222222','unlisted'=>'33333333'),'provinces'=>array('province'=>'not a number'));
+$r=Namyran_Customer_Stage_Bridge::config();
+expect($r->data['customerMobile']['geography'][0]['province_id']==='province','Public geography uses Core IDs');
+expect($r->data['customerMobile']['support']===array('cities'=>array('active'=>'22222222'),'provinces'=>array(),'national'=>'11111111'),'Only approved-format public numbers with known regions exposed');

@@ -16,6 +16,59 @@ import java.util.concurrent.Executors
 
 class CustomerViewModel(application: Application) : AndroidViewModel(application) {
     private val api = CoreApi()
+    private val catalogApi = CoreApi()
+    private val catalogExecutor = Executors.newSingleThreadExecutor()
+    private val catalogPrefs = application.getSharedPreferences("public_catalog_stage", 0)
+    private var catalogLoading = false
+    private var catalogUpdatedAt = 0L
+    var verifiedEmail by mutableStateOf(""); private set
+    var pendingEmail by mutableStateOf(""); private set
+
+    private val extensionApi = CoreApi()
+
+    suspend fun customerFeature(feature: String, payload: JSONObject): JSONObject {
+        val credentials = auth()
+        val response = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            extensionApi.customerFeature(feature, credentials.put("input", payload))
+        }
+        if (!loggedIn || mobile != credentials.optString("mobile")) {
+            throw CoreFailure("account_changed", "حساب کاربری تغییر کرده است.")
+        }
+        return response
+    }
+
+    fun refreshEmail(email: String? = null) {
+        if(!loggedIn) return
+        val payload = auth().put("action", if(email == null) "status" else "send")
+        if(email != null) payload.put("email",email.trim())
+        launchTask {
+            val response = api.customerEmail(payload)
+            return@launchTask {
+                emailLoaded = true
+                verifiedEmail = response.optString("verified_email")
+                pendingEmail = response.optString("pending_email")
+                if(email != null && pendingEmail.isNotBlank())
+                    message = "لینک تأیید برای ارسال پذیرفته شد. صندوق ایمیل را بررسی کنید."
+            }
+        }
+    }
+
+    fun refreshCatalog(force: Boolean = false) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if(catalogLoading || (!force && catalogUpdatedAt > 0 && now - catalogUpdatedAt < 60_000)) return
+        catalogLoading = true
+        catalogExecutor.execute {
+            val result = runCatching { catalogApi.config() }.getOrNull()
+            if(result != null) catalogPrefs.edit().putString("catalog",result.toString()).apply()
+            main.post {
+                if(result != null) {
+                    config = result
+                    catalogUpdatedAt = android.os.SystemClock.elapsedRealtime()
+                } else if(force) error = "به‌روزرسانی فهرست خدمات انجام نشد."
+                catalogLoading = false
+            }
+        }
+    }
     private val store = SecureStore(application)
     private val imageStore = AttachmentStore(application)
     var images by mutableStateOf<List<JSONObject>>(emptyList()); private set
@@ -29,7 +82,48 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
             JSONObject(it.readText())
         }
     }.getOrElse { JSONObject() }
-    var config by mutableStateOf<JSONObject?>(null); private set
+    var config by mutableStateOf(
+        runCatching { JSONObject(catalogPrefs.getString("catalog", null) ?: "") }
+            .getOrNull()?.takeIf { it.optJSONObject("customerMobile")?.optInt("schema") == 1 }
+    ); private set
+    private val geography = runCatching {
+        application.assets.open("core-geography.json").bufferedReader().use { JSONObject(it.readText()) }
+    }.getOrElse { JSONObject() }
+    internal val customerCities: List<CustomerCity>
+        get() = (config?.optJSONObject("customerMobile")?.optJSONArray("geography")
+            ?.objects()?.takeIf { it.isNotEmpty() } ?: geography.array("cities").objects()).mapNotNull {
+            val city = CustomerCity(it.optString("id"), it.optString("title"), it.optString("province_id"), it.optString("province"))
+            city.takeIf { value -> listOf(value.id, value.title, value.provinceId, value.province).none(String::isBlank) }
+        }
+    internal var customerCity by mutableStateOf<CustomerCity?>(null)
+        private set
+    internal fun restoreCustomerCity() {
+        val saved = store.read("customer_city_" + mobile)
+        customerCity = customerCities.firstOrNull {
+            it.id == saved?.optString("id") && it.provinceId == saved?.optString("province")
+        }
+    }
+    internal fun saveCustomerCity(selection: CustomerCity): Boolean {
+        if (!loggedIn || selection !in customerCities) return false
+        return runCatching {
+            store.write("customer_city_" + mobile, JSONObject().put("id", selection.id).put("province", selection.provinceId))
+            customerCity = selection
+        }.isSuccess
+    }
+    internal fun localSupport(): Pair<String, String>? {
+        val selection = customerCity ?: return null
+        val directory = config?.optJSONObject("customerMobile")?.optJSONObject("support") ?: return null
+        val cityPhone = supportNumber(directory.optJSONObject("cities")?.optString(selection.id))
+        if (cityPhone != null) return selection.title to cityPhone
+        val provincePhone = supportNumber(directory.optJSONObject("provinces")?.optString(selection.provinceId))
+        return provincePhone?.let { selection.province to it }
+    }
+    internal fun nationalSupport(): String = supportNumber(config?.optJSONObject("customerMobile")
+        ?.optJSONObject("support")?.optString("national")) ?: "09375846363"
+
+    private fun supportNumber(raw: String?): String? = normalizedDigits(raw.orEmpty()).trim()
+        .takeIf { it.matches(Regex("[+]?[0-9]{5,15}")) }
+
     var mobile by mutableStateOf(""); private set
     private var token by mutableStateOf("")
     val hasSavedSession: Boolean get() = token.isNotBlank()
@@ -92,6 +186,14 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
     var accuracy by mutableStateOf("")
     var terms by mutableStateOf(false)
 
+    var lastFailureCode by mutableStateOf("")
+        private set
+    var otpExpiresAt by mutableLongStateOf(0L)
+        private set
+    var otpGeneration by mutableIntStateOf(0)
+        private set
+    private var lastSessionCheck = 0L
+
     init {
         val saved = store.read("session")
         if (saved != null && saved.optLong("expires") > System.currentTimeMillis()) {
@@ -110,7 +212,7 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
     }
     private fun launchTask(task: () -> (() -> Unit)) {
         if (busy) return
-        busy = true; error = ""; message = ""
+        busy = true; error = ""; lastFailureCode = ""; message = ""
         executor.execute {
             try { val apply = task(); main.post { apply(); busy=false } }
             catch (e: Exception) {
@@ -118,19 +220,27 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
                 main.post {
                 if(e is CoreFailure&&pending!=null&&NativeRules.rejectedBeforeInsert(e.code)){pending=null;store.write("pending",null);creating=true;step=0}
                 if (e is CoreFailure && e.code in setOf("nsc_customer_session_denied","nsc_session_expired","nsc_my_requests_auth")) clearSession()
+                if (e is CoreFailure && e.code == "nsc_otp_cooldown") {
+                    val seconds = e.details.optLong("remaining_seconds", 60).coerceIn(1, 900)
+                    resendAt = System.currentTimeMillis() + seconds * 1000
+                }
+                lastFailureCode = if (e is CoreFailure) e.code else "network_error"
                 error = when(e) { is CoreFailure -> e.message ?: "خطای Core"; else -> "ارتباط با Stage کامل نشد؛ اتصال اینترنت را بررسی و دوباره تلاش کنید." }
                 busy=false
             } }
         }
     }
-    fun dismissError() { error="" }
+    fun dismissError() { error=""; lastFailureCode="" }
     private fun auth() = JSONObject().put("mobile",mobile).put("verification_token",token)
     private fun clearSession() {
-        tab="home"; config=null; token=""; sessionTtlSeconds=0; otpSent=false; loggedIn=false; accountName=""; requests=emptyList();addresses=emptyList();tracking=null
+        tab="home"; customerCity=null; accountDetailsRequested=false; emailLoaded=false; verifiedEmail="";pendingEmail="";token=""; sessionTtlSeconds=0; otpSent=false; loggedIn=false; accountName=""; requests=emptyList();addresses=emptyList();addressesLoaded=false;tracking=null
         images=emptyList();if(pending==null)imageStore.clear();receiptInAccount=false;requestsLoaded=false;name="";address="";description="";city="";area="";latitude="";longitude="";accuracy="";model="";item=JSONObject();items=emptyList();terms=false;creating=false;store.write("draft",null);store.write("receipt",null);store.write("session",null);store.write("address_operation",null);api.clearCookies()
     }
     fun refresh() {
         if (token.isBlank()) return
+        refreshCatalog()
+        val elapsed = android.os.SystemClock.elapsedRealtime()
+        if (loggedIn && lastSessionCheck > 0 && elapsed - lastSessionCheck < 60_000) return
         launchTask {
             val account = try {
                 api.post("otp/session", auth().put("purpose", "customer_service"))
@@ -156,7 +266,7 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
             // A successful account-scoped read also proves the existing credential
             // when Stage cannot return the optional session metadata.
             val credentials = auth().put("verification_token", renewedToken ?: token)
-            val rows = try {
+            val rows = if (renewedToken != null) null else try {
                 val response = api.post("my-requests", credentials)
                 response.optJSONArray("requests")?.takeIf { response.optBoolean("success") }?.objects()
             } catch (e: CoreFailure) {
@@ -171,20 +281,81 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
             if (renewedToken != null && sessionTtlSeconds > 0) {
                 persistSession(mobile, renewedToken, sessionTtlSeconds)
             }
-            val catalog = runCatching { api.config() }
             return@launchTask {
                 if (renewedToken != null) token = renewedToken
-                catalog.getOrNull()?.let { config = it }
-                if (config == null) error = "دریافت فهرست خدمات کامل نشد. دوباره تلاش کنید."
                 loggedIn = true
+                lastSessionCheck = android.os.SystemClock.elapsedRealtime()
                 if (rows != null) { requests = rows; requestsLoaded = true }
                 if (matchingAccount) {
                     accountName = account.optString("customer_name")
                     if (name.isBlank()) name = accountName
                 }
+                if (rows == null) main.post { refreshHomeRequests() }
             }
         }
     }
+
+    private fun refreshHomeRequests() {
+        if (!loggedIn) return
+        launchTask {
+            val response = api.post("my-requests", auth())
+            if (!response.optBoolean("success") || response.optJSONArray("requests") == null)
+                throw CoreFailure("requests_response_invalid", "دریافت درخواست‌ها کامل نشد.")
+            return@launchTask { requests = response.array("requests").objects(); requestsLoaded = true }
+        }
+    }
+
+    suspend fun signInWithGoogle(context: android.content.Context) {
+        if (loggedIn || hasSavedSession || busy) return
+        dismissError()
+        try {
+            val challenge = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { api.google("challenge") }
+            val client = challenge.getString("client_id")
+            val nonce = challenge.getString("nonce")
+            val csrf = challenge.getString("csrf")
+            require(client.matches(Regex("[A-Za-z0-9-]+[.]apps[.]googleusercontent[.]com")) && nonce.length in 32..128)
+            val option = com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption.Builder(client)
+                .setNonce(nonce).build()
+            val request = androidx.credentials.GetCredentialRequest.Builder().addCredentialOption(option).build()
+            val credential = androidx.credentials.CredentialManager.create(context).getCredential(context, request).credential
+            if (credential !is androidx.credentials.CustomCredential ||
+                credential.type != com.google.android.libraries.identity.googleid.GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL)
+                throw CoreFailure("google_credential_invalid", "پاسخ حساب گوگل معتبر نیست.")
+            val idToken = com.google.android.libraries.identity.googleid.GoogleIdTokenCredential.createFrom(credential.data).idToken
+            val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                api.google("login", mapOf("csrf" to csrf, "credential" to idToken))
+            }
+            if (!result.getBoolean("linked")) {
+                message = "حساب گوگل تأیید شد. برای اتصال به پرونده‌ها، شماره همراه را با پیامک تأیید کنید."
+                return
+            }
+            val session = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                api.post("otp/session", JSONObject().put("purpose", "customer_service"))
+            }
+            val number = normalizedDigits(session.optString("mobile"))
+            val credentialToken = session.optString("verification_token")
+            if (!session.optBoolean("success") || !number.matches(Regex("09[0-9]{9}")) ||
+                !credentialToken.matches(Regex("[A-Za-z0-9]{48}")) || session.optString("purpose") != "customer_service")
+                throw CoreFailure("google_session_invalid", "نشست حساب گوگل تأیید نشد.")
+            val ttl = api.sessionLifetime(credentialToken)
+            if (ttl > 0) persistSession(number, credentialToken, ttl)
+            mobile = number; token = credentialToken; sessionTtlSeconds = ttl
+            loggedIn = true; otpSent = false; tab = "home"
+            accountName = session.optString("customer_name")
+            lastSessionCheck = android.os.SystemClock.elapsedRealtime()
+            refreshCatalog()
+            main.post { refreshHomeRequests() }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: androidx.credentials.exceptions.GetCredentialCancellationException) {
+            message = "انتخاب حساب گوگل لغو شد."
+        } catch (e: Exception) {
+            lastFailureCode = if (e is CoreFailure) e.code else "google_unavailable"
+            error = if (e is CoreFailure) e.message.orEmpty() else
+                "ورود گوگل کامل نشد. می‌توانید با پیامک وارد شوید."
+        }
+    }
+
     fun sendOtp(number: String, remember: Boolean = false) {
         if (loggedIn || hasSavedSession) return
         val numberClean=normalizedDigits(number).filter { it.isDigit() }
@@ -195,7 +366,8 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
             if(!r.optBoolean("success")) throw CoreFailure("otp_failed","ارسال کد تأیید نشد.")
             if(r.optBoolean("dev_mode")) throw CoreFailure("otp_dev_mode","Core در حالت کد آزمایشی است؛ ارسال واقعی پیامک تأیید نشد. تنظیم ارسال واقعی باید در Stage اصلاح شود.")
             val until=System.currentTimeMillis()+r.optInt("resend_in",90)*1000L
-            return@launchTask { mobile=numberClean;rememberMobile(remember,numberClean);otpSent=true;resendAt=until;message=r.optString("message") }
+            val expiresAt = System.currentTimeMillis() + r.getLong("expires_in").coerceIn(1, 600) * 1000
+            return@launchTask { otpExpiresAt=expiresAt; otpGeneration++; mobile=numberClean;rememberMobile(remember,numberClean);otpSent=true;resendAt=until;message=r.optString("message") }
         }
     }
     fun editOtpMobile() {
@@ -212,7 +384,7 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
         launchTask {
             val r=api.post("otp/verify",JSONObject().put("mobile",mobile).put("code",normalized).put("purpose","customer_service"))
             val t=r.optString("verification_token")
-            if(!r.optBoolean("success")||t.isBlank())throw CoreFailure("otp_verify_invalid","نشست معتبر دریافت نشد.")
+            if(!r.optBoolean("success")||!t.matches(Regex("[A-Za-z0-9]{48}")))throw CoreFailure("otp_verify_invalid","نشست معتبر دریافت نشد.")
             val ttl = r.getLong("verified_for")
             require(ttl > 0)
             persistSession(mobile, t, ttl)
@@ -229,7 +401,34 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
     }
     fun logout() { launchTask { api.post("otp/logout",auth()); return@launchTask {clearSession();tab="home";message="از حساب خارج شدید."} } }
     fun loadRequests() { if(!loggedIn){tab="profile";return};launchTask {val r=api.post("my-requests",auth()); return@launchTask {requests=r.array("requests").objects();requestsLoaded=true;tab="requests";receipt?.let { rc->receiptInAccount=requests.any { it.optString("tracking_code")==rc.optString("tracking_code") }}} } }
-    fun loadAddresses() { if(!loggedIn)return;launchTask {val r=api.post("customer-addresses",auth().put("action","list"));return@launchTask {addresses=r.array("rows").objects()}} }
+    private var accountDetailsRequested = false
+    fun claimAccountDetailsLoad(): Boolean {
+        if (accountDetailsRequested) return false
+        accountDetailsRequested = true
+        return true
+    }
+    var emailLoaded by mutableStateOf(false)
+        private set
+    var addressesLoaded by mutableStateOf(false)
+        private set
+
+    fun loadAccountDetails() {
+        if (!loggedIn) return
+        launchTask {
+            val addressesResult = runCatching { api.post("customer-addresses", auth().put("action", "list")).array("rows").objects() }
+            val emailResult = runCatching { api.customerEmail(auth().put("action", "status")) }
+            return@launchTask {
+                addressesResult.onSuccess { addresses = it; addressesLoaded = true }
+                emailResult.onSuccess {
+                    emailLoaded = true
+                    verifiedEmail = it.optString("verified_email")
+                    pendingEmail = it.optString("pending_email")
+                }
+                if (addressesResult.isFailure || emailResult.isFailure) message = "بخشی از اطلاعات حساب به‌روز نشد. دوباره تلاش کنید."
+            }
+        }
+    }
+    fun loadAddresses() { if(!loggedIn)return;launchTask {val r=api.post("customer-addresses",auth().put("action","list"));return@launchTask {addresses=r.array("rows").objects();addressesLoaded=true}} }
     fun saveRequestAddress(label: String) {
         if (!loggedIn || address.trim().length < 8 || latitude.toDoubleOrNull() == null || longitude.toDoubleOrNull() == null) {
             error = "برای ذخیره نشانی، آدرس دقیق و موقعیت آن را وارد کنید."
@@ -283,6 +482,12 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
                 return
             }
         } else null
+        if(name.isBlank()) name = localProfile().optString("name").ifBlank { accountName }
+        if (city.isBlank()) {
+            val preferred = customerCity?.id
+            if (preferred != null && catalog.optJSONObject("customerMobile")?.array("cities")
+                    ?.objects()?.any { it.optString("id") == preferred } == true) city = preferred
+        }
         receipt=null;receiptInAccount=false;creating=true;step=0
         if (serviceId != null && item.optString("service_type") != serviceId) changeItem("service_type",serviceId)
         if (category != null && selectedDevice != null) {
@@ -322,21 +527,48 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
     private fun currentItem():JSONObject=JSONObject(item.toString()).apply { if(NativeRules.isCustomBrand(optString("brand")))put("brand",optString("custom_brand").trim());remove("custom_brand") }.put("device_model",model).put("service_location",if(item.optString("service_type")=="install")"onsite" else item.optString("service_location"))
     fun addItem() { val problem=checkItem();if(problem!=null){error=problem;return};if(items.size>=(config!!.getJSONObject("customerMobile").getInt("maxOrderItems")-1)){error="حداکثر ۲۰ دستگاه در هر درخواست مجاز است.";return};items=items+currentItem();item=JSONObject();model="";step=0;saveDraft() }
     fun removeItem(index:Int){items=items.filterIndexed{i,_->i!=index};saveDraft()}
-    fun next() {
-        error=""
-        when(step){
-            0 -> checkItem()?.let{error=it;return}
-            1 -> {
-                val cities=config?.optJSONObject("customerMobile")?.array("cities")?.objects().orEmpty()
-                if(cities.none{it.optString("id")==city}){error="شهر فعال محل خدمت را انتخاب کنید.";return}
-                if(name.trim().length<3||address.trim().length<8){error="نام کامل و نشانی دقیق را وارد کنید.";return}
-                if(config?.optBoolean("locationRequired")==true&&(latitude.isBlank()||longitude.isBlank())){error="طبق تنظیم Core، موقعیت محل خدمت الزامی است.";return}
+    private fun validationError(stage: Int): String? = when(stage) {
+        0 -> checkItem()
+        1 -> {
+            val cities=config?.optJSONObject("customerMobile")?.array("cities")?.objects().orEmpty()
+            when {
+                cities.none{it.optString("id")==city} -> "شهر فعال محل خدمت را انتخاب کنید."
+                name.trim().length<3 || address.trim().length<8 -> "نام کامل و نشانی دقیق را وارد کنید."
+                config?.optBoolean("locationRequired")==true && (latitude.isBlank()||longitude.isBlank()) ->
+                    "طبق تنظیم Core، موقعیت محل خدمت الزامی است."
+                else -> null
             }
-            2 -> {if(schedule?.optString("date")!=date||schedule?.array("slots")?.objects()?.none{it.optString("value")==slot&&it.optBoolean("available")}!=false){error="زمان پیشنهادی معتبر را از سرور دریافت و انتخاب کنید.";return}}
         }
-        saveDraft();step++
+        2 -> if(schedule?.optString("date")!=date ||
+            schedule?.array("slots")?.objects()?.none{it.optString("value")==slot&&it.optBoolean("available")}!=false)
+            "زمان پیشنهادی معتبر را از سرور دریافت و انتخاب کنید." else null
+        else -> null
     }
-    fun getSchedule(value:String) {val d=normalizedDigits(value).trim();date=d;slot="";schedule=null;saveDraft();launchTask {val r=api.schedule(d);return@launchTask {schedule=r}}}
+
+    fun next() {
+        if(busy || step>=3) return
+        error=validationError(step).orEmpty()
+        if(error.isNotEmpty()) return
+        saveDraft()
+        step++
+    }
+
+    fun getSchedule(value: String) {
+        if(busy) return
+        val requestedDate=normalizedDigits(value).trim()
+        if(requestedDate!=date) slot=""
+        date=requestedDate
+        schedule=null
+        saveDraft()
+        launchTask {
+            val result=api.schedule(requestedDate)
+            return@launchTask {
+                schedule=result
+                if(result.array("slots").objects().none{it.optString("value")==slot&&it.optBoolean("available")}) slot=""
+                saveDraft()
+            }
+        }
+    }
     fun addImages(uris:List<Uri>) {
         if(!loggedIn||pending!=null||uris.isEmpty())return
         val maxFiles=ImageRules.maxFiles(config?.optInt("maxFiles",3)?:3)
@@ -360,7 +592,9 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
     }
     fun submit() {
         if(!loggedIn||!terms||busy||pending!=null){error="ورود به حساب و پذیرش شرایط لازم است.";return}
-        checkItem()?.let{error=it;return}
+        for(stage in 0..2){
+            validationError(stage)?.let{error=it;step=stage;return}
+        }
         val cities=config?.optJSONObject("customerMobile")?.array("cities")?.objects().orEmpty()
         val cityTitle=cities.find{it.optString("id")==city}?.optString("title")?:kotlin.run {error="شهر را دوباره انتخاب کنید.";return}
         val allItems=items+currentItem();val primary=allItems.first()
@@ -390,14 +624,34 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
             if(!result.optBoolean("success")||result.optInt("request_id")<=0||result.optString("tracking_code").isBlank())throw CoreFailure("submission_invalid","پاسخ ثبت درخواست معتبر نیست. همان درخواست را دوباره بررسی کنید.")
             // Persist the receipt before the read-back, so a list/network failure never loses the tracking code.
             if(!filesConfirmed)result.put("local_unconfirmed_images",JSONArray(selected))
+            result.put("local_service_type",saved.optString("service_type"))
+                .put("local_device",saved.optString("device"))
+                .put("local_proposed_date",saved.optString("visit_date"))
+                .put("local_proposed_slot",saved.optString("visit_time"))
             store.write("receipt",result);store.write("pending",null);store.write("draft",null)
             if(filesConfirmed)selected.forEach(imageStore::remove)
+            val emailPayload = auth().put("request_id",result.optInt("request_id"))
             var rows:List<JSONObject>?=null
             try {rows=api.post("my-requests",auth()).array("requests").objects()}catch(_:Exception){}
             return@launchTask {receipt=result;pending=null;images=emptyList();receiptInAccount=rows?.any{it.optString("tracking_code")==result.optString("tracking_code")}==true
                 if(rows!=null){requests=rows!!;requestsLoaded=true}
-                creating=false;tab="receipt";item=JSONObject();items=emptyList();terms=false;store.write("draft",null)}
+                creating=false;tab="receipt";item=JSONObject();items=emptyList();terms=false;store.write("draft",null)
+                sendReceiptEmail(result,emailPayload)
+            }
         }
     }
-    override fun onCleared(){ executor.shutdown();super.onCleared() }
+    private fun sendReceiptEmail(result: JSONObject, payload: JSONObject) {
+        catalogExecutor.execute {
+            val accepted = runCatching { CoreApi().customerEmail(payload,receipt=true).optBoolean("accepted") }.getOrDefault(false)
+            if(accepted) main.post {
+                if(loggedIn && receipt === result && payload.optString("mobile") == mobile) {
+                    val updated = JSONObject(result.toString()).put("tracking_email_accepted",true)
+                    receipt = updated
+                    runCatching { store.write("receipt",updated) }
+                }
+            }
+        }
+    }
+
+    override fun onCleared(){ executor.shutdown();catalogExecutor.shutdown();super.onCleared() }
 }

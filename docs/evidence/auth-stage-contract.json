@@ -1,0 +1,28 @@
+{
+  "checked_at_utc": "2026-11-11T22:03:49.723737+00:00",
+  "site": "https://stage.namyranservice.ir",
+  "source_commit": "9424d62397b0eaffa7ea824d5873a0ea6bec84f6",
+  "customer_otp_routes": {
+    "/namyran-service/v1/otp/send": [
+      "POST"
+    ],
+    "/namyran-service/v1/otp/verify": [
+      "POST"
+    ],
+    "/namyran-service/v1/otp/session": [
+      "POST"
+    ],
+    "/namyran-service/v1/otp/logout": [
+      "POST"
+    ]
+  },
+  "customer_password_rest_route_found": false,
+  "google_source": "Core NSC_Google_Login AJAX challenge/login/cancel",
+  "google_challenge_live_http": 403,
+  "otp_length_from_core_source": 4,
+  "sms_sent": false,
+  "authenticated_login_tested": false,
+  "production_changed": false,
+  "google_challenge_live_message": "ورود گوگل فعال نیست.",
+  "core_version_from_live_metadata": "2.0.0-alpha.5.87"
+}

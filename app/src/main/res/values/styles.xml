@@ -1,0 +1,8 @@
+<resources>
+    <style name="NamyranStageTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">#0A204A</item>
+        <item name="android:statusBarColor">#050D16</item>
+        <item name="android:navigationBarColor">#050D16</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>
