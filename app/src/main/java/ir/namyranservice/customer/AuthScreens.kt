@@ -59,8 +59,10 @@ internal fun CustomerLogin(vm: CustomerViewModel, onDemo: () -> Unit) {
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val formScroll = rememberScrollState()
     val busy = vm.busy || listening || sendingGoogle
     val codeStep = vm.otpSent || demoChallenge
+    LaunchedEffect(page, codeStep) { formScroll.scrollTo(0) }
     val demo = BuildConfig.DEBUG && phone == "09022896363"
     val listen = rememberSmsCodeConsent { received ->
         if (!demoChallenge && vm.otpSent && !vm.busy) code = received
@@ -107,7 +109,7 @@ internal fun CustomerLogin(vm: CustomerViewModel, onDemo: () -> Unit) {
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
                 listOf(Color(0xFF02070B), Color(0xFF0D2232), Color(0xFF02070B)))).padding(padding).imePadding()) {
                 Column(Modifier.widthIn(max = 560.dp).fillMaxWidth().align(Alignment.TopCenter)
-                    .verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
+                    .verticalScroll(formScroll).padding(horizontal = 20.dp, vertical = 16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(18.dp)) {
                     AuthBrand()
@@ -164,7 +166,7 @@ internal fun CustomerLogin(vm: CustomerViewModel, onDemo: () -> Unit) {
                                 TextButton(onClick = { changePage("reset") }, enabled = !busy) { Text("فراموشی رمز عبور؟", color = Electric) }
                                 Text("ورود با رمز عبور در حال حاضر در دسترس نیست. برای ورود به حساب از پیامک استفاده کنید.",
                                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                GoldButton("ورود با پیامک به همین حساب", !busy) { changePage("sms") }
+                                GoldButton("ادامه با پیامک", !busy) { changePage("sms") }
                             } else {
                                 if (page == "register") Text("با تأیید شماره همراه، دسترسی مشتری به درخواست‌ها و خدمات فعال می‌شود.")
                                 if (page == "reset") Text("شماره همراه حساب را تأیید کنید تا دوباره وارد شوید. تغییر رمز عبور پس از فعال‌شدن این قابلیت در دسترس خواهد بود.")

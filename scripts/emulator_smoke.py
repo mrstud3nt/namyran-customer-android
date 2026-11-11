@@ -46,8 +46,21 @@ def enter_field(name,value):
     adb('shell','input','keyevent','KEYCODE_BACK')
 
 def tap_label(name,label):
-    root=dump(name)
-    tap(next(n for n in root.iter('node') if n.get('text')==label))
+    for attempt in range(7):
+        root=dump(name+'-'+str(attempt))
+        node=next((n for n in root.iter('node') if n.get('text')==label),None)
+        if node is not None:
+            tap(node)
+            return
+        scroll=next((n for n in root.iter('node') if n.get('scrollable')=='true'),None)
+        assert scroll is not None, 'Missing control '+label
+        x1,y1,x2,y2=map(int,re.findall(r'\d+',scroll.get('bounds')))
+        x=(x1+x2)//2
+        if attempt==0:
+            adb('shell','input','swipe',str(x),str(y1+20),str(x),str(y2-20),'350')
+        else:
+            adb('shell','input','swipe',str(x),str(y2-20),str(x),str(y1+20),'350')
+    raise AssertionError('Missing control '+label)
 
 try:
     assert_login('fresh-login')

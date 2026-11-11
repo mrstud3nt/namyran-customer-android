@@ -1,0 +1,11 @@
+<resources>
+    <style name="NamyranStageTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">#0A204A</item>
+        <item name="android:windowSplashScreenBackground">#0A204A</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/namyran_symbol</item>
+        <item name="android:statusBarColor">#050D16</item>
+        <item name="android:navigationBarColor">#050D16</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+</resources>
