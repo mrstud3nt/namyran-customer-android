@@ -52,6 +52,7 @@ internal fun CustomerLogin(vm: CustomerViewModel, onDemo: () -> Unit) {
     var rememberPhone by rememberSaveable { mutableStateOf(vm.rememberedMobile.isNotBlank()) }
     var demoChallenge by rememberSaveable { mutableStateOf(false) }
     var code by remember { mutableStateOf("") }
+    var pendingSms by remember { mutableStateOf("") }
     var localError by remember { mutableStateOf("") }
     var help by remember { mutableStateOf(false) }
     var listening by remember { mutableStateOf(false) }
@@ -65,7 +66,10 @@ internal fun CustomerLogin(vm: CustomerViewModel, onDemo: () -> Unit) {
     LaunchedEffect(page, codeStep) { formScroll.scrollTo(0) }
     val demo = BuildConfig.DEBUG && phone == "09022896363"
     val listen = rememberSmsCodeConsent { received ->
-        if (!demoChallenge && vm.otpSent && !vm.busy) code = received
+        if (!demoChallenge) {
+            pendingSms = received
+            if (vm.otpSent) code = received
+        }
     }
     fun changePage(next: String) {
         if (busy) return
@@ -74,7 +78,7 @@ internal fun CustomerLogin(vm: CustomerViewModel, onDemo: () -> Unit) {
     }
     fun send() {
         if (busy) return
-        localError = ""; code = ""
+        localError = ""; code = ""; pendingSms = ""
         if (!phone.matches(Regex("09[0-9]{9}"))) {
             localError = "شماره موبایل نامعتبر است. شماره را به صورت ۰۹xxxxxxxxx وارد کنید."
             return
@@ -96,7 +100,10 @@ internal fun CustomerLogin(vm: CustomerViewModel, onDemo: () -> Unit) {
         }
         now = System.currentTimeMillis()
     }
-    LaunchedEffect(vm.otpGeneration) { code = "" }
+    LaunchedEffect(vm.otpGeneration) {
+        code = pendingSms
+        pendingSms = ""
+    }
     val remaining = ((vm.resendAt - now + 999) / 1000).coerceAtLeast(0)
     val expired = vm.otpSent && vm.otpExpiresAt > 0 && now >= vm.otpExpiresAt
 
