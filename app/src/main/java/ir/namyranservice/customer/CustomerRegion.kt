@@ -11,6 +11,17 @@ import android.os.Looper
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.material.icons.outlined.Map
+import androidx.compose.material.icons.outlined.LocationCity
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -47,7 +58,7 @@ internal fun CustomerRegionPicker(vm: CustomerViewModel, onClose: () -> Unit) {
     fun locate() {
         if (finding) return
         finding = true
-        status = ""
+        status = "در حال شناسایی موقعیت…"
         scope.launch {
             try {
                 val match = findCustomerCity(context, cities)
@@ -57,7 +68,9 @@ internal fun CustomerRegionPicker(vm: CustomerViewModel, onClose: () -> Unit) {
                     city = match.id
                     status = "موقعیت، «${match.title}» را پیشنهاد می‌کند. شهر را بررسی و تأیید کنید."
                 }
-            } finally { finding = false }
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { status = "دریافت موقعیت ممکن نشد. دوباره تلاش کنید یا شهر را دستی انتخاب کنید." }
+            finally { finding = false }
         }
     }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
@@ -68,43 +81,55 @@ internal fun CustomerRegionPicker(vm: CustomerViewModel, onClose: () -> Unit) {
         if (!autoStarted && vm.customerCity == null) {
             autoStarted = true
             if (context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) locate()
+            else permission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
         }
     }
-    AlertDialog(
-        onDismissRequest = onClose,
-        icon = { Icon(Icons.Outlined.LocationOn, null) },
-        title = { Text("استان و شهر شما") },
-        text = {
-            Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("شهر پیش‌فرض برای پیشنهاد محل خدمت و نمایش شماره پشتیبانی شعبه استفاده می‌شود.")
-                OutlinedButton(onClick = {
+    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        val shape = RoundedCornerShape(32.dp)
+        val surface = MaterialTheme.colorScheme.surface
+        Surface(Modifier.fillMaxWidth().padding(20.dp).widthIn(max = 480.dp), shape = shape,
+            color = surface.copy(alpha = 0.96f), shadowElevation = 18.dp,
+            border = BorderStroke(1.dp, Color(0xFF9FDDF4))) {
+            Column(Modifier.background(Brush.linearGradient(listOf(Color(0xFF46C5ED).copy(alpha = 0.12f),
+                Color.White.copy(alpha = 0.05f), Color(0xFF3297DE).copy(alpha = 0.09f))))
+                .padding(22.dp).heightIn(max = 560.dp).verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Surface(shape = RoundedCornerShape(22.dp), color = Color(0xFF087BA7), shadowElevation = 8.dp) {
+                    Box(Modifier.size(68.dp), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Outlined.LocationOn, null, Modifier.size(38.dp), tint = Color.White)
+                    }
+                }
+                Text("استان و شهر شما", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                Text("با اجازه شما موقعیت برای پیشنهاد شهر و پشتیبانی محلی بررسی می‌شود. مختصات دقیق برای این انتخاب به سرور نامیران ارسال نمی‌شود.",
+                    style = MaterialTheme.typography.bodyMedium)
+                Button(onClick = {
                     if (context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) locate()
                     else permission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
-                }, enabled = !finding, modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Outlined.MyLocation, null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("تشخیص شهر با موقعیت")
+                }, enabled = !finding, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF087DA7))) {
+                    Icon(Icons.Outlined.MyLocation, null); Spacer(Modifier.width(8.dp))
+                    Text(if (finding) "در حال شناسایی موقعیت…" else "تشخیص خودکار موقعیت")
                 }
                 if (finding) LinearProgressIndicator(Modifier.fillMaxWidth())
-                if (status.isNotBlank()) Text(status)
-                ExpressivePicker("استان", provinces, province, !finding) {
-                    if (province != it) { province = it; city = "" }
+                if (status.isNotBlank()) Surface(shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.secondaryContainer) {
+                    Text(status, Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
                 }
-                if (province.isNotBlank()) {
-                    ExpressivePicker("شهر", cities.filter { it.provinceId == province }.map { it.id to it.title },
-                        city, !finding) { city = it }
+                ExpressivePicker("استان", provinces, province, !finding) {
+                    if (province != it) { province = it; city = ""; status = "" }
+                }
+                if (province.isNotBlank()) ExpressivePicker("شهر",
+                    cities.filter { it.provinceId == province }.map { it.id to it.title }, city, !finding) { city = it }
+                val selection = cities.firstOrNull { it.id == city && it.provinceId == province }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Button(enabled = selection != null && !finding, onClick = {
+                        selection?.let { if (vm.saveCustomerCity(it)) onClose() }
+                    }, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("تأیید و ادامه") }
+                    TextButton(onClick = onClose, modifier = Modifier.heightIn(min = 48.dp)) { Text("بعداً") }
                 }
             }
-        },
-        confirmButton = {
-            val selection = cities.firstOrNull { it.id == city && it.provinceId == province }
-            Button(enabled = selection != null && !finding, onClick = {
-                selection?.let { if (vm.saveCustomerCity(it)) onClose() }
-            }) { Text("تأیید شهر") }
-        },
-        dismissButton = { TextButton(onClick = onClose) { Text("بعداً") } }
-    )
+        }
+    }
 }
 
 private fun normalizePlace(value: String): String = value.lowercase(Locale.ROOT)
