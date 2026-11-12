@@ -140,7 +140,8 @@ fun ExpressivePicker(
         "گروه دستگاه" -> Icons.Outlined.Category
         "دستگاه" -> Icons.Outlined.Tv
         "برند" -> Icons.Outlined.LocalOffer
-        "شهر محل خدمت" -> Icons.Outlined.LocationCity
+        "استان" -> Icons.Outlined.Map
+        "شهر", "شهر محل خدمت" -> Icons.Outlined.LocationCity
         "محله / محدوده" -> Icons.Outlined.Place
         "سایز تلویزیون" -> Icons.Outlined.Straighten
         else -> Icons.Outlined.Tune

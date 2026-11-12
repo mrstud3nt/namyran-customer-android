@@ -74,19 +74,21 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable private fun CustomerApp(vm:CustomerViewModel) {
+    val activity = androidx.activity.compose.LocalActivity.current
+    SideEffect {
+        activity?.let {
+            val lightSurface = if (vm.loggedIn) !vm.dark else !vm.hasSavedSession
+            androidx.core.view.WindowCompat.getInsetsController(it.window, it.window.decorView).apply {
+                isAppearanceLightStatusBars = lightSurface
+                isAppearanceLightNavigationBars = lightSurface
+            }
+        }
+    }
     BackHandler(vm.loggedIn && (vm.creating || vm.tab in listOf("tracking","receipt","partners"))) { if(!vm.busy){if(vm.creating&&vm.step>0)vm.step-- else {vm.creating=false;vm.tab="home"};vm.saveDraft()} }
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
         NamyranTheme(vm.dark) {
             if (vm.loggedIn) CustomerWorkspace(vm)
-            else {
-                var preview by rememberSaveable { mutableStateOf(false) }
-                BackHandler(preview) { preview = false }
-                if (preview) Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Home(vm, demo = true)
-                    Button(onClick = { preview = false }) { Text("بازگشت به ورود") }
-                } else CustomerLogin(vm) { preview = true }
-            }
+            else CustomerLogin(vm)
         }
     }
 }
@@ -113,7 +115,7 @@ class MainActivity : ComponentActivity() {
             if (destination == "requests") vm.loadRequests()
         }
     }){padding->
-        Column(Modifier.fillMaxSize().padding(padding).imePadding().verticalScroll(pageScroll).padding(horizontal=20.dp,vertical=16.dp),verticalArrangement=Arrangement.spacedBy(16.dp)){
+        Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding().verticalScroll(pageScroll).padding(horizontal=20.dp,vertical=16.dp),verticalArrangement=Arrangement.spacedBy(16.dp)){
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween){
                 Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
                     Box {
