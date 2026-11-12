@@ -26,13 +26,18 @@ def assert_login(name):
     assert 'نامیران سرویس' in labels, f'Login header missing on {name}'
     screenshot(name)
     controls={'شماره موبایل','ورود با پیامک'}
-    if not controls <= labels:
+    for scroll_attempt in range(6):
+        if controls <= labels:
+            break
         scroll=next(n for n in root.iter('node') if n.get('scrollable')=='true')
         x1,y1,x2,y2=map(int,re.findall(r'\d+',scroll.get('bounds')))
-        x=(x1+x2)//2
-        adb('shell','input','swipe',str(x),str(y2-25),str(x),str(y1+25),'400')
-        labels.update(n.get('text') for n in dump(name+'-scrolled').iter('node'))
-    assert controls <= labels,'Login controls missing'
+        x=x1+max(12,(x2-x1)//20)
+        adb('shell','input','swipe',str(x),str(y1+(y2-y1)*3//4),str(x),str(y1+(y2-y1)//4),'400')
+        time.sleep(0.5)
+        root=dump(name+'-scrolled-'+str(scroll_attempt))
+        labels.update(n.get('text') for n in root.iter('node'))
+    assert controls <= labels,'Login controls missing after scrolling'
+    screenshot(name+'-controls')
     assert not {'خانه','حساب من','ثبت درخواست جدید','منوی حساب'} & labels,'Workspace visible before verification'
 
 def tap(node):
@@ -65,6 +70,12 @@ def tap_label(name,label):
 
 try:
     adb('shell','settings','put','secure','show_ime_with_hard_keyboard','1')
+    adb('shell','am','force-stop',pkg)
+    recording=subprocess.Popen(['adb','shell','screenrecord','--time-limit','4','/sdcard/namyran-startup.mp4'])
+    time.sleep(0.5)
+    adb('shell','am','start','-n',pkg+'/ir.namyranservice.customer.MainActivity')
+    recording.wait(timeout=12)
+    adb('pull','/sdcard/namyran-startup.mp4',str(out/'startup.mp4'))
     assert_login('fresh-login')
     # Reproduce the user's real failure with the IME visible, not dismissed before capture.
     root=dump('phone-focus')

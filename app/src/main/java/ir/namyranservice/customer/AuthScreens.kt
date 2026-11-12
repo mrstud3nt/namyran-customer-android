@@ -371,10 +371,11 @@ private fun AuthError(message: String, code: String) {
 
 @Composable
 private fun AuthBrand() {
+    val compact = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp < 700
     val keyboardOpen = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     if (!keyboardOpen) {
         Column(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Image(painterResource(R.drawable.namyran_symbol), "نشان نامیران سرویس", Modifier.size(146.dp), contentScale = ContentScale.Fit)
+            Image(painterResource(R.drawable.namyran_symbol), "نشان نامیران سرویس", Modifier.size(if (compact) 100.dp else 146.dp), contentScale = ContentScale.Fit)
             AuthText("نامیران سرویس", color = Color(0xFF183B60), style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.ExtraBold, textAlign = TextAlign.Center)
             AuthText("خدمات تخصصی تعمیر و سرویس\nلوازم خانگی و تلویزیون",
