@@ -74,6 +74,12 @@ try:
     root=dump('keyboard-open')
     assert any(n.get('text')=='09123456789' for n in root.iter('node')), 'Phone lost on IME open'
     screenshot('keyboard-open')
+    # Switch login language while editing: the in-memory form must survive.
+    node=next(n for n in root.iter('node') if n.get('content-desc')=='Change login language')
+    tap(node);root=dump('english-keyboard')
+    assert any(n.get('text')=='09123456789' for n in root.iter('node')), 'Phone lost on language change'
+    screenshot('english-keyboard')
+    tap(next(n for n in root.iter('node') if n.get('content-desc')=='Change login language'))
     tap_label('keyboard-submit-visible','ورود با نام کاربری و رمز عبور')
     root=dump('keyboard-password-form')
     screenshot('keyboard-password-form')

@@ -62,6 +62,8 @@ internal fun CustomerLogin(vm: CustomerViewModel, onDemo: () -> Unit) {
     var sendingGoogle by remember { mutableStateOf(false) }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     val context = LocalContext.current
+    val languagePrefs = remember { context.getSharedPreferences("customer_language", 0) }
+    var english by rememberSaveable { mutableStateOf(languagePrefs.getBoolean("english", false)) }
     val scope = rememberCoroutineScope()
     val formScroll = rememberScrollState()
     val busy = vm.busy || listening || sendingGoogle
@@ -110,6 +112,8 @@ internal fun CustomerLogin(vm: CustomerViewModel, onDemo: () -> Unit) {
     val remaining = ((vm.resendAt - now + 999) / 1000).coerceAtLeast(0)
     val expired = vm.otpSent && vm.otpExpiresAt > 0 && now >= vm.otpExpiresAt
 
+    CompositionLocalProvider(LocalAuthEnglish provides english,
+        LocalLayoutDirection provides if (english) LayoutDirection.Ltr else LayoutDirection.Rtl) {
     MaterialTheme(colorScheme = AuthColors) {
         if (vm.hasSavedSession) {
             SessionOpening(vm)
@@ -125,18 +129,30 @@ internal fun CustomerLogin(vm: CustomerViewModel, onDemo: () -> Unit) {
                     .verticalScroll(formScroll).padding(horizontal = 20.dp, vertical = 16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = {
+                            english = !english
+                            languagePrefs.edit().putBoolean("english", english).apply()
+                        }, modifier = Modifier.semantics { contentDescription = "Change login language" },
+                            colors = ButtonDefaults.textButtonColors(containerColor = Color(0xFF1B354E), contentColor = Color.White)) {
+                            Icon(Icons.Outlined.Language, null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            androidx.compose.material3.Text(if (english) "English" else "فارسی")
+                            Icon(Icons.Outlined.KeyboardArrowDown, null, Modifier.size(16.dp))
+                        }
+                    }
                     AuthBrand()
                     AuthPanel {
                         if (codeStep) {
                             AuthHeading("کد تأیید پیامکی", Icons.Outlined.Sms)
-                            Text(if (demoChallenge) "کد آزمایشی را وارد کنید." else
+                            AuthText(if (demoChallenge) "کد آزمایشی را وارد کنید." else
                                 "کد ارسال‌شده به " + persianDigits(vm.mobile), textAlign = TextAlign.Center,
                                 modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.onSurfaceVariant)
                             OtpInput(code, { code = normalizedDigits(it).filter { c -> c in '0'..'9' }.take(4); localError = ""; vm.dismissError() },
                                 enabled = !busy && !expired)
                             if (expired) AuthError("اعتبار کد تأیید پایان یافته است. کد جدید دریافت کنید.", "nsc_otp_expired")
                             AuthError(localError.ifBlank { vm.error }, vm.lastFailureCode)
-                            if (vm.message.isNotBlank()) Text(vm.message, color = Electric)
+                            if (vm.message.isNotBlank()) AuthText(vm.message, color = Electric)
                             GoldButton("تأیید و ورود", !busy && code.length == 4 && !expired) {
                                 if (demoChallenge) {
                                     if (code == "1111") onDemo() else localError = "کد آزمایشی صحیح نیست."
@@ -145,14 +161,14 @@ internal fun CustomerLogin(vm: CustomerViewModel, onDemo: () -> Unit) {
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween) {
                                 TextButton(onClick = ::send, enabled = !busy && (demoChallenge || remaining == 0L)) {
-                                    Icon(Icons.Outlined.Refresh, null); Spacer(Modifier.width(4.dp)); Text("ارسال مجدد کد")
+                                    Icon(Icons.Outlined.Refresh, null); Spacer(Modifier.width(4.dp)); AuthText("ارسال مجدد کد")
                                 }
-                                Text(if (remaining > 0 && !demoChallenge) persianDigits("${remaining / 60}:${(remaining % 60).toString().padStart(2, '0')}") else "آمادهٔ ارسال",
+                                AuthText(if (remaining > 0 && !demoChallenge) persianDigits("${remaining / 60}:${(remaining % 60).toString().padStart(2, '0')}") else "آمادهٔ ارسال",
                                     color = Gold, style = MaterialTheme.typography.labelLarge)
                             }
                             TextButton(enabled = !busy, onClick = {
                                 demoChallenge = false; code = ""; localError = ""; vm.editOtpMobile()
-                            }, modifier = Modifier.fillMaxWidth()) { Text("بازگشت و ویرایش شماره موبایل") }
+                            }, modifier = Modifier.fillMaxWidth()) { AuthText("بازگشت و ویرایش شماره موبایل") }
                         } else {
                             AuthHeading(when (page) {
                                 "password" -> "ورود با نام کاربری"
@@ -160,7 +176,7 @@ internal fun CustomerLogin(vm: CustomerViewModel, onDemo: () -> Unit) {
                                 "reset" -> "بازیابی دسترسی به حساب"
                                 else -> "ورود به حساب کاربری"
                             }, if (page == "password") Icons.Outlined.PersonOutline else Icons.Outlined.PersonOutline)
-                            if (vm.message.isNotBlank()) Text(vm.message, color = Electric)
+                            if (vm.message.isNotBlank()) AuthText(vm.message, color = Electric)
                             if (page == "password") {
                                 AuthField("نام کاربری", username, { username = it.take(100); localError = "" }, Icons.Outlined.PersonOutline, !busy)
                                 AuthField("رمز عبور", password, { password = it.take(256); localError = "" }, Icons.Outlined.Lock, !busy,
@@ -172,13 +188,13 @@ internal fun CustomerLogin(vm: CustomerViewModel, onDemo: () -> Unit) {
                                                 if (revealPassword) "پنهان‌کردن رمز" else "نمایش رمز")
                                         }
                                     })
-                                TextButton(onClick = { changePage("reset") }, enabled = !busy) { Text("فراموشی رمز عبور؟", color = Electric) }
-                                Text("ورود با رمز عبور در حال حاضر در دسترس نیست. برای ورود به حساب از پیامک استفاده کنید.",
+                                TextButton(onClick = { changePage("reset") }, enabled = !busy) { AuthText("فراموشی رمز عبور؟", color = Electric) }
+                                AuthText("ورود با رمز عبور در حال حاضر در دسترس نیست. برای ورود به حساب از پیامک استفاده کنید.",
                                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 GoldButton("ادامه با پیامک", !busy) { changePage("sms") }
                             } else {
-                                if (page == "register") Text("با تأیید شماره همراه، دسترسی مشتری به درخواست‌ها و خدمات فعال می‌شود.")
-                                if (page == "reset") Text("شماره همراه حساب را تأیید کنید تا دوباره وارد شوید. تغییر رمز عبور پس از فعال‌شدن این قابلیت در دسترس خواهد بود.")
+                                if (page == "register") AuthText("با تأیید شماره همراه، دسترسی مشتری به درخواست‌ها و خدمات فعال می‌شود.")
+                                if (page == "reset") AuthText("شماره همراه حساب را تأیید کنید تا دوباره وارد شوید. تغییر رمز عبور پس از فعال‌شدن این قابلیت در دسترس خواهد بود.")
                                 AuthField("شماره موبایل", phone, {
                                     phone = normalizedDigits(it).filter { c -> c in '0'..'9' }.take(11)
                                     localError = ""; vm.dismissError()
@@ -187,22 +203,22 @@ internal fun CustomerLogin(vm: CustomerViewModel, onDemo: () -> Unit) {
                                     rememberPhone = it; if (!it) vm.rememberMobile(false)
                                 }, verticalAlignment = Alignment.CenterVertically) {
                                     Checkbox(rememberPhone, null, enabled = !busy)
-                                    Text("شماره‌ام را به خاطر بسپار", modifier = Modifier.padding(8.dp), style = MaterialTheme.typography.bodySmall)
+                                    AuthText("شماره‌ام را به خاطر بسپار", modifier = Modifier.padding(8.dp), style = MaterialTheme.typography.bodySmall)
                                 }
                                 AuthError(localError.ifBlank { vm.error }, vm.lastFailureCode)
                                 GoldButton("ورود با پیامک", !busy && remaining == 0L, ::send)
-                                if (remaining > 0) Text("ارسال دوباره تا " + persianDigits(remaining.toString()) + " ثانیه دیگر", color = Gold)
+                                if (remaining > 0) AuthText("ارسال دوباره تا " + persianDigits(remaining.toString()) + " ثانیه دیگر", color = Gold)
                             }
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                HorizontalDivider(Modifier.weight(1f)); Text("یا"); HorizontalDivider(Modifier.weight(1f))
+                                HorizontalDivider(Modifier.weight(1f)); AuthText("یا"); HorizontalDivider(Modifier.weight(1f))
                             }
                             if (page != "password") OutlinedButton(onClick = { changePage("password") },
                                 enabled = !busy, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                                 colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.White.copy(alpha = 0.8f))) {
                                 Icon(Icons.Outlined.PersonOutline, null)
                                 Spacer(Modifier.width(8.dp))
-                                Text("ورود با نام کاربری و رمز عبور", fontWeight = FontWeight.Bold)
+                                AuthText("ورود با نام کاربری و رمز عبور", fontWeight = FontWeight.Bold)
                             }
                             OutlinedButton(enabled = !busy, onClick = {
                                 password = ""; sendingGoogle = true; localError = ""
@@ -213,34 +229,36 @@ internal fun CustomerLogin(vm: CustomerViewModel, onDemo: () -> Unit) {
                             }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                                 border = BorderStroke(1.dp, Color(0xFF88919D)),
                                 colors = ButtonDefaults.outlinedButtonColors(containerColor = Color(0xFF172332))) {
-                                Text("G", color = Color(0xFF4285F4), fontWeight = FontWeight.ExtraBold, fontSize = 24.sp)
+                                AuthText("G", color = Color(0xFF4285F4), fontWeight = FontWeight.ExtraBold, fontSize = 24.sp)
                                 Spacer(Modifier.width(8.dp))
-                                Text("ورود با حساب Google", color = Color.White)
+                                AuthText("ورود با حساب Google", color = Color.White)
                             }
                             if (page == "password") AuthError(localError.ifBlank { vm.error }, vm.lastFailureCode)
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                                TextButton(onClick = { changePage("register") }, enabled = !busy) { Text("ثبت‌نام") }
-                                TextButton(onClick = { help = true }) { Text("راهنما") }
+                                TextButton(onClick = { changePage("register") }, enabled = !busy) { AuthText("ثبت‌نام") }
+                                TextButton(onClick = { help = true }) { AuthText("راهنما") }
                                 TextButton(onClick = {
                                     runCatching { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.fromParts("tel", vm.nationalSupport(), null))) }
                                         .onFailure { localError = "بازکردن شماره‌گیر ممکن نبود." }
-                                }) { Text("پشتیبانی") }
+                                }) { AuthText("پشتیبانی") }
                             }
                         }
                         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Gold)
                     }
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                         Icon(Icons.Outlined.Lock, null, tint = Gold, modifier = Modifier.size(16.dp))
-                        Text("ورود امن و محافظت از اطلاعات شما", color = Color(0xFF233B59), style = MaterialTheme.typography.labelSmall)
+                        AuthText("ورود امن و محافظت از اطلاعات شما", color = Color(0xFF233B59), style = MaterialTheme.typography.labelSmall)
                     }
                     Spacer(Modifier.height(8.dp))
                 }
             }
         }
-        if (help) AlertDialog(onDismissRequest = { help = false }, title = { Text("راهنمای ورود") },
-            text = { Text("شماره همراه خود را وارد کنید و کد پیامک را تأیید کنید. کد این نسخه چهاررقمی است. اگر اجازه دهید، کد پیامک در فرم قرار می‌گیرد. پس از ورود، نشست حساب روی گوشی ذخیره می‌شود.") },
-            confirmButton = { TextButton(onClick = { help = false }) { Text("متوجه شدم") } })
+        if (help) AlertDialog(onDismissRequest = { help = false }, title = { AuthText("راهنمای ورود") },
+            text = { AuthText("شماره همراه خود را وارد کنید و کد پیامک را تأیید کنید. کد این نسخه چهاررقمی است. اگر اجازه دهید، کد پیامک در فرم قرار می‌گیرد. پس از ورود، نشست حساب روی گوشی ذخیره می‌شود.") },
+            confirmButton = { TextButton(onClick = { help = false }) { AuthText("متوجه شدم") } })
     }
+}
+
 }
 
 private fun Modifier.toggleableAuth(enabled: Boolean, value: Boolean, onChange: (Boolean) -> Unit): Modifier =
@@ -261,7 +279,7 @@ private fun AuthHeading(title: String, icon: ImageVector) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, tint = Electric, modifier = Modifier.size(25.dp))
         Spacer(Modifier.width(8.dp))
-        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+        AuthText(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
     }
 }
 
@@ -269,9 +287,15 @@ private fun AuthHeading(title: String, icon: ImageVector) {
 private fun AuthField(label: String, value: String, onChange: (String) -> Unit, icon: ImageVector, enabled: Boolean,
                       type: KeyboardType = KeyboardType.Text, transformation: VisualTransformation = VisualTransformation.None,
                       trailing: (@Composable () -> Unit)? = null) {
-    OutlinedTextField(value, onChange, modifier = Modifier.fillMaxWidth(), label = { Text(label) },
+    OutlinedTextField(value, onChange, modifier = Modifier.fillMaxWidth(), label = { AuthText(label) },
         enabled = enabled, singleLine = true, shape = RoundedCornerShape(16.dp),
-        leadingIcon = { Icon(icon, null) }, trailingIcon = trailing,
+        leadingIcon = { Icon(icon, null) }, trailingIcon = trailing ?: if (type == KeyboardType.Phone) ({
+            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                Row(Modifier.padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    androidx.compose.material3.Text("🇮🇷 +98", color = Color(0xFF17395B), fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }) else null,
         visualTransformation = transformation, keyboardOptions = KeyboardOptions(keyboardType = type),
         colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Electric, unfocusedBorderColor = Color(0xFF87929E),
             focusedContainerColor = Color(0xFFF8FBFF), unfocusedContainerColor = Color(0xFFEEF3F9)))
@@ -284,7 +308,7 @@ private fun GoldButton(title: String, enabled: Boolean, onClick: () -> Unit) {
         Brush.verticalGradient(if (enabled) listOf(Color(0xFF129AFF), Color(0xFF0751BB), Color(0xFF003E8C)) else listOf(Color(0xFFD3DEEB), Color(0xFFBCCADD))))) {
         Button(onClick, enabled = enabled, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
             shape = shape, colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, disabledContainerColor = Color.Transparent)) {
-            Text(title, color = if (enabled) Color.White else Color(0xFF52657D), fontWeight = FontWeight.Bold)
+            AuthText(title, color = if (enabled) Color.White else Color(0xFF52657D), fontWeight = FontWeight.Bold)
             Spacer(Modifier.width(8.dp)); Icon(Icons.Outlined.Login, null, tint = if (enabled) Color.White else Color(0xFF52657D))
         }
     }
@@ -297,7 +321,7 @@ private fun MethodButton(title: String, icon: ImageVector, selected: Boolean, mo
         colors = ButtonDefaults.outlinedButtonColors(containerColor = if (selected) Color(0xFF063255) else Color(0xFF28323B))) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(icon, null, Modifier.size(20.dp), tint = if (selected) Electric else Color.White)
-            Text(title, textAlign = TextAlign.Center, color = Color.White, style = MaterialTheme.typography.labelSmall)
+            AuthText(title, textAlign = TextAlign.Center, color = Color.White, style = MaterialTheme.typography.labelSmall)
         }
     }
 }
@@ -315,7 +339,7 @@ private fun OtpInput(value: String, onChange: (String) -> Unit, enabled: Boolean
                             Box(Modifier.weight(1f).height(56.dp).border(1.5.dp,
                                 if (index == value.length && enabled) Electric else Color(0xFF8391A0), RoundedCornerShape(13.dp))
                                 .background(Color(0xFFF3F8FF), RoundedCornerShape(13.dp)), contentAlignment = Alignment.Center) {
-                                Text(persianDigits(value.getOrNull(index)?.toString().orEmpty()), color = Color(0xFF17395B),
+                                AuthText(persianDigits(value.getOrNull(index)?.toString().orEmpty()), color = Color(0xFF17395B),
                                     style = MaterialTheme.typography.headlineSmall)
                             }
                         }
@@ -340,7 +364,7 @@ private fun AuthError(message: String, code: String) {
         Row(Modifier.padding(12.dp).semantics { liveRegion = LiveRegionMode.Polite },
             horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(icon, null, tint = Color(0xFFB12B3A))
-            Text(message, color = Color(0xFF912434), style = MaterialTheme.typography.bodySmall)
+            AuthText(message, color = Color(0xFF912434), style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -351,9 +375,9 @@ private fun AuthBrand() {
     if (!keyboardOpen) {
         Column(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Image(painterResource(R.drawable.namyran_symbol), "نشان نامیران سرویس", Modifier.size(146.dp), contentScale = ContentScale.Fit)
-            Text("نامیران سرویس", color = Color(0xFF183B60), style = MaterialTheme.typography.headlineMedium,
+            AuthText("نامیران سرویس", color = Color(0xFF183B60), style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.ExtraBold, textAlign = TextAlign.Center)
-            Text("خدمات تخصصی تعمیر و سرویس\nلوازم خانگی و تلویزیون",
+            AuthText("خدمات تخصصی تعمیر و سرویس\nلوازم خانگی و تلویزیون",
                 modifier = Modifier.widthIn(max = 240.dp).padding(top = 4.dp),
                 textAlign = TextAlign.Center, style = MaterialTheme.typography.bodySmall, color = Color(0xFF203B57))
         }
@@ -374,7 +398,7 @@ private fun RowScope.Assurance(icon: ImageVector, title: String) {
             .border(1.dp, Color(0xFF9CD4F4), RoundedCornerShape(11.dp)), contentAlignment = Alignment.Center) {
             Icon(icon, null, Modifier.size(23.dp), tint = Color(0xFFFFD34A))
         }
-        Text(title, style = MaterialTheme.typography.labelSmall, color = Color(0xFF203852), textAlign = TextAlign.Center)
+        AuthText(title, style = MaterialTheme.typography.labelSmall, color = Color(0xFF203852), textAlign = TextAlign.Center)
     }
 }
 
@@ -389,12 +413,12 @@ private fun SessionOpening(vm: CustomerViewModel) {
         Column(Modifier.padding(30.dp).widthIn(max = 400.dp), horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(18.dp)) {
             Image(painterResource(R.drawable.namyran_symbol), "نشان نامیران سرویس", Modifier.size(130.dp).alpha(opacity))
-            Text("نامیران سرویس", color = Color.White, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-            Text("در حال آماده‌سازی حساب شما", color = Color.White, textAlign = TextAlign.Center)
+            AuthText("نامیران سرویس", color = Color.White, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            AuthText("در حال آماده‌سازی حساب شما", color = Color.White, textAlign = TextAlign.Center)
             if (vm.busy) CircularProgressIndicator(color = Color.White)
             else {
                 AuthError(vm.error, vm.lastFailureCode)
-                Button(onClick = vm::refresh) { Text("تلاش دوباره") }
+                Button(onClick = vm::refresh) { AuthText("تلاش دوباره") }
             }
         }
     }
