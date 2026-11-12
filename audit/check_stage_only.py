@@ -19,4 +19,7 @@ assert 'instanceFollowRedirects = false' in source
 assert 'AndroidKeyStore' in source
 assert 'WebView' not in source
 assert not re.search(r'TrustAll|ALLOW_ALL_HOSTNAME_VERIFIER|setHostnameVerifier',source)
+auth=(root/'app/src/main/java/ir/namyranservice/customer/AuthScreens.kt').read_text()
+assert not any(marker in auth for marker in ('demoChallenge', 'onDemo', '09022896363', '"1111"')), 'Synthetic login bypass must not ship'
+assert 'vm.verifyOtp(code)' in auth
 print('PASS: Stage identity, HTTPS only, redirect rejection, native UI and encrypted session storage')

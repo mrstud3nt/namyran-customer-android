@@ -63,9 +63,9 @@ def tap_label(name,label):
         x1,y1,x2,y2=map(int,re.findall(r'\d+',scroll.get('bounds')))
         x=(x1+x2)//2
         if attempt==0:
-            adb('shell','input','swipe',str(x),str(y1+20),str(x),str(y2-20),'350')
+            adb('shell','input','swipe',str(x),str(y1+(y2-y1)//4),str(x),str(y1+(y2-y1)*3//4),'350')
         else:
-            adb('shell','input','swipe',str(x),str(y2-20),str(x),str(y1+20),'350')
+            adb('shell','input','swipe',str(x),str(y1+(y2-y1)*3//4),str(x),str(y1+(y2-y1)//4),'350')
     raise AssertionError('Missing control '+label)
 
 try:
@@ -84,6 +84,7 @@ try:
     adb('shell','input','text','09123456789')
     root=dump('keyboard-open')
     assert any(n.get('text')=='09123456789' for n in root.iter('node')), 'Phone lost on IME open'
+    (out/'keyboard-ime-state.txt').write_bytes(adb('shell','dumpsys','input_method'))
     screenshot('keyboard-open')
     # Switch login language while editing: the in-memory form must survive.
     node=next(n for n in root.iter('node') if n.get('content-desc')=='Change login language')
@@ -92,7 +93,12 @@ try:
     screenshot('english-keyboard')
     tap(next(n for n in root.iter('node') if n.get('content-desc')=='Change login language'))
     tap_label('keyboard-submit-visible','ورود با نام کاربری و رمز عبور')
+    root=dump('password-before-focus')
+    tap(next(n for n in root.iter('node') if n.get('class')=='android.widget.EditText'))
+    adb('shell','input','text','ui_layout_check')
     root=dump('keyboard-password-form')
+    assert any(n.get('text')=='ui_layout_check' for n in root.iter('node')), 'Username lost with keyboard'
+    assert any(n.get('text')=='نام کاربری' for n in root.iter('node')), 'Username input missing with keyboard'
     screenshot('keyboard-password-form')
     adb('shell','input','keyevent','KEYCODE_BACK')
     adb('shell','am','force-stop',pkg)

@@ -46,14 +46,13 @@ private val AuthColors = lightColorScheme(primary = Color(0xFF075CB4), onPrimary
     outline = Color(0xFF9AAEC7), error = Color(0xFFAE263A))
 
 @Composable
-internal fun CustomerLogin(vm: CustomerViewModel, onDemo: () -> Unit) {
+internal fun CustomerLogin(vm: CustomerViewModel) {
     var page by rememberSaveable { mutableStateOf("sms") }
     var phone by rememberSaveable { mutableStateOf(vm.mobile.takeIf { vm.otpSent } ?: vm.rememberedMobile) }
     var username by rememberSaveable { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var revealPassword by remember { mutableStateOf(false) }
     var rememberPhone by rememberSaveable { mutableStateOf(vm.rememberedMobile.isNotBlank()) }
-    var demoChallenge by rememberSaveable { mutableStateOf(false) }
     var code by remember { mutableStateOf("") }
     var pendingSms by remember { mutableStateOf("") }
     var localError by remember { mutableStateOf("") }
@@ -67,14 +66,11 @@ internal fun CustomerLogin(vm: CustomerViewModel, onDemo: () -> Unit) {
     val scope = rememberCoroutineScope()
     val formScroll = rememberScrollState()
     val busy = vm.busy || listening || sendingGoogle
-    val codeStep = vm.otpSent || demoChallenge
+    val codeStep = vm.otpSent
     LaunchedEffect(page, codeStep) { formScroll.scrollTo(0) }
-    val demo = BuildConfig.DEBUG && phone == "09022896363"
     val listen = rememberSmsCodeConsent { received ->
-        if (!demoChallenge) {
-            pendingSms = received
-            if (vm.otpSent) code = received
-        }
+        pendingSms = received
+        if (vm.otpSent) code = received
     }
     fun changePage(next: String) {
         if (busy) return
@@ -88,13 +84,12 @@ internal fun CustomerLogin(vm: CustomerViewModel, onDemo: () -> Unit) {
             localError = "شماره موبایل نامعتبر است. شماره را به صورت ۰۹xxxxxxxxx وارد کنید."
             return
         }
-        if (demo) { demoChallenge = true; return }
         listening = true
         listen { vm.sendOtp(phone, rememberPhone); listening = false }
     }
     BackHandler(!vm.hasSavedSession && (codeStep || page != "sms")) {
         if (!busy) {
-            if (codeStep) { demoChallenge = false; code = ""; vm.editOtpMobile() }
+            if (codeStep) { code = ""; vm.editOtpMobile() }
             else changePage("sms")
         }
     }
@@ -129,7 +124,7 @@ internal fun CustomerLogin(vm: CustomerViewModel, onDemo: () -> Unit) {
                     .verticalScroll(formScroll).padding(horizontal = 20.dp, vertical = 16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Absolute.Right) {
                         TextButton(onClick = {
                             english = !english
                             languagePrefs.edit().putBoolean("english", english).apply()
@@ -145,8 +140,7 @@ internal fun CustomerLogin(vm: CustomerViewModel, onDemo: () -> Unit) {
                     AuthPanel {
                         if (codeStep) {
                             AuthHeading("کد تأیید پیامکی", Icons.Outlined.Sms)
-                            AuthText(if (demoChallenge) "کد آزمایشی را وارد کنید." else
-                                "کد ارسال‌شده به " + persianDigits(vm.mobile), textAlign = TextAlign.Center,
+                            AuthText("کد ارسال‌شده به " + persianDigits(vm.mobile), textAlign = TextAlign.Center,
                                 modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.onSurfaceVariant)
                             OtpInput(code, { code = normalizedDigits(it).filter { c -> c in '0'..'9' }.take(4); localError = ""; vm.dismissError() },
                                 enabled = !busy && !expired)
@@ -154,20 +148,18 @@ internal fun CustomerLogin(vm: CustomerViewModel, onDemo: () -> Unit) {
                             AuthError(localError.ifBlank { vm.error }, vm.lastFailureCode)
                             if (vm.message.isNotBlank()) AuthText(vm.message, color = Electric)
                             GoldButton("تأیید و ورود", !busy && code.length == 4 && !expired) {
-                                if (demoChallenge) {
-                                    if (code == "1111") onDemo() else localError = "کد آزمایشی صحیح نیست."
-                                } else vm.verifyOtp(code)
+                                vm.verifyOtp(code)
                             }
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween) {
-                                TextButton(onClick = ::send, enabled = !busy && (demoChallenge || remaining == 0L)) {
+                                TextButton(onClick = ::send, enabled = !busy && (remaining == 0L)) {
                                     Icon(Icons.Outlined.Refresh, null); Spacer(Modifier.width(4.dp)); AuthText("ارسال مجدد کد")
                                 }
-                                AuthText(if (remaining > 0 && !demoChallenge) persianDigits("${remaining / 60}:${(remaining % 60).toString().padStart(2, '0')}") else "آمادهٔ ارسال",
+                                AuthText(if (remaining > 0) persianDigits("${remaining / 60}:${(remaining % 60).toString().padStart(2, '0')}") else "آمادهٔ ارسال",
                                     color = Gold, style = MaterialTheme.typography.labelLarge)
                             }
                             TextButton(enabled = !busy, onClick = {
-                                demoChallenge = false; code = ""; localError = ""; vm.editOtpMobile()
+                                code = ""; localError = ""; vm.editOtpMobile()
                             }, modifier = Modifier.fillMaxWidth()) { AuthText("بازگشت و ویرایش شماره موبایل") }
                         } else {
                             AuthHeading(when (page) {

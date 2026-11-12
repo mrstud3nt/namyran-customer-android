@@ -74,19 +74,21 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable private fun CustomerApp(vm:CustomerViewModel) {
+    val activity = LocalContext.current as? android.app.Activity
+    SideEffect {
+        activity?.let {
+            val lightSurface = if (vm.loggedIn) !vm.dark else !vm.hasSavedSession
+            androidx.core.view.WindowCompat.getInsetsController(it.window, it.window.decorView).apply {
+                isAppearanceLightStatusBars = lightSurface
+                isAppearanceLightNavigationBars = lightSurface
+            }
+        }
+    }
     BackHandler(vm.loggedIn && (vm.creating || vm.tab in listOf("tracking","receipt","partners"))) { if(!vm.busy){if(vm.creating&&vm.step>0)vm.step-- else {vm.creating=false;vm.tab="home"};vm.saveDraft()} }
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
         NamyranTheme(vm.dark) {
             if (vm.loggedIn) CustomerWorkspace(vm)
-            else {
-                var preview by rememberSaveable { mutableStateOf(false) }
-                BackHandler(preview) { preview = false }
-                if (preview) Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Home(vm, demo = true)
-                    Button(onClick = { preview = false }) { Text("بازگشت به ورود") }
-                } else CustomerLogin(vm) { preview = true }
-            }
+            else CustomerLogin(vm)
         }
     }
 }
