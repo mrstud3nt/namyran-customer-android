@@ -74,7 +74,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable private fun CustomerApp(vm:CustomerViewModel) {
-    val activity = LocalContext.current as? android.app.Activity
+    val activity = androidx.activity.compose.LocalActivity.current
     SideEffect {
         activity?.let {
             val lightSurface = if (vm.loggedIn) !vm.dark else !vm.hasSavedSession
