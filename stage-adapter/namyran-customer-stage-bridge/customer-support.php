@@ -100,7 +100,7 @@ final class Namyran_Stage_Customer_Support {
             $engine=$wpdb->get_var($wpdb->prepare('SELECT ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=%s',$table));
             if ($wpdb->last_error || strcasecmp((string)$engine,'InnoDB')!==0) return self::error('customer_support_engine',503);
         }
-        $lock='nsc_support_'.substr($owner,0,40);
+        $lock='nsc_support_'.substr(hash('sha256',DB_NAME.'|'.$wpdb->prefix.'|'.$owner),0,40);
         if ((string)$wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s,0)',$lock))!=='1')
             return self::error('customer_support_busy',409);
         $operation=hash('sha256',$owner.'|'.strtolower($key));
@@ -129,9 +129,9 @@ final class Namyran_Stage_Customer_Support {
                 $post=self::ticket($id,$owner,true);
                 if (!$post) { $wpdb->query('ROLLBACK');$transaction=false;return self::error('customer_support_missing',404); }
                 if ($post->comment_status!=='open') { $wpdb->query('ROLLBACK');$transaction=false;return self::error('customer_support_closed',409); }
-                $commentId=wp_insert_comment(array('comment_post_ID'=>$id,'comment_content'=>$message,
+                $commentId=wp_insert_comment(wp_slash(array('comment_post_ID'=>$id,'comment_content'=>$message,
                     'comment_type'=>'nsc_customer_reply','comment_approved'=>1,'user_id'=>0,
-                    'comment_author'=>'مشتری','comment_author_email'=>'','comment_author_IP'=>''));
+                    'comment_author'=>'مشتری','comment_author_email'=>'','comment_author_IP'=>'')));
                 if (!$commentId) throw new RuntimeException('comment');
             }
             if (!$prior && !add_post_meta($post->ID,'_nsc_support_operation_'.$operation,$fingerprint,true))

@@ -1,6 +1,7 @@
 <?php
 // Isolated controller fixtures: no WordPress host, network, credentials or live database.
 define('ABSPATH',__DIR__);define('MINUTE_IN_SECONDS',60);define('HOUR_IN_SECONDS',3600);
+define('DB_NAME','fixture_clone2');
 class WP_Error {function __construct(public $code,public $message,public $data){}}
 class WP_REST_Request {function __construct(public $data){}function get_param($k){return $this->data[$k]??null;}}
 class WP_REST_Response {function __construct(public $data){}}
@@ -8,7 +9,7 @@ class Namyran_Customer_Stage_Bridge {static function response($d){return new WP_
 class NSC_Utils {static function normalize_mobile($m){return $m;}static function is_mobile($m){return preg_match('/^09[0-9]{9}$/D',$m);}static function verification_transient_key($t){return $t;}static function rate_limit(...$a){return $GLOBALS['rate'];}static function ip_hash(){return 'fixture';}}
 function add_action(...$a){}function wp_salt($s){return 'fixture-only';}function get_transient($k){return $GLOBALS['sessions'][$k]??false;}
 function sanitize_text_field($v){return trim(strip_tags($v));}function sanitize_textarea_field($v){return trim(strip_tags($v));}
-function wp_json_encode($v){return json_encode($v);}function wp_slash($v){return addslashes($v);}function is_wp_error($v){return $v instanceof WP_Error;}
+function wp_json_encode($v){return json_encode($v);}function wp_slash($v){return is_array($v)?array_map('wp_slash',$v):(is_string($v)?addslashes($v):$v);}function is_wp_error($v){return $v instanceof WP_Error;}
 function wp_strip_all_tags($v){return strip_tags($v);}function user_can($id,$cap){return $id===1;}
 function clean_post_cache($id){}function clean_comment_cache($id){}
 function register_post_type($type,$args){$GLOBALS['registered']=$args;}
@@ -21,10 +22,10 @@ function get_posts($args){
  return array_slice(array_reverse($rows),0,$args['numberposts']);
 }
 function wp_insert_post($data,$errors){$id=++$GLOBALS['sequence'];$GLOBALS['posts'][$id]=(object)array_merge($data,['ID'=>$id,'post_title'=>stripslashes($data['post_title']),'post_content'=>stripslashes($data['post_content'])]);$GLOBALS['meta'][$id]=$data['meta_input'];return $id;}
-function wp_insert_comment($data){$id=count($GLOBALS['comments'])+1;$GLOBALS['comments'][$id]=(object)array_merge($data,['comment_ID'=>$id]);return $id;}
+function wp_insert_comment($data){$data=array_map(fn($v)=>is_string($v)?stripslashes($v):$v,$data);$id=count($GLOBALS['comments'])+1;$GLOBALS['comments'][$id]=(object)array_merge($data,['comment_ID'=>$id]);return $id;}
 function get_comments($args){$rows=array_filter($GLOBALS['comments'],fn($x)=>$x->comment_post_ID===$args['post_id']&&$x->comment_approved===1);return array_reverse(array_values($rows));}
 class FixtureDB {
- public $posts='wp_posts',$postmeta='wp_postmeta',$comments='wp_comments',$commentmeta='wp_commentmeta',$last_error='';private $snapshot;
+ public $prefix='wp_fixture_',$posts='wp_posts',$postmeta='wp_postmeta',$comments='wp_comments',$commentmeta='wp_commentmeta',$last_error='';private $snapshot;
  function prepare($sql,...$args){return ['sql'=>$sql,'args'=>$args];}
  function get_var($q){if(str_contains($q['sql'],'ENGINE'))return $GLOBALS['engine'];if(str_contains($q['sql'],'GET_LOCK'))return $GLOBALS['lock']?'1':'0';return '1';}
  function get_row($q){return get_post($q['args'][0]);}
@@ -51,9 +52,10 @@ $changed=$create;$changed['message']='Changed payload';expect(err(call_support($
 expect(count(call_support(['action'=>'tickets'])->data['tickets'])===1,'owner sees ticket');
 expect(count(call_support(['action'=>'tickets'],$other,'09987654321')->data['tickets'])===0,'other customer cannot list ticket');
 expect(err(call_support(['action'=>'messages','ticket_id'=>$id],$other,'09987654321'),'customer_support_missing'),'other customer cannot read ticket');
-$reply=['action'=>'send_reply','ticket_id'=>$id,'message'=>'Reply body','idempotency_key'=>'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'];
+$reply=['action'=>'send_reply','ticket_id'=>$id,'message'=>'Reply "quoted" C:\\fixture','idempotency_key'=>'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'];
 expect(err(call_support($reply,$other,'09987654321'),'customer_support_missing'),'other customer cannot reply');
 $r=call_support($reply);expect(count($r->data['messages'])===2,'reply persisted');
+expect($r->data['messages'][1]['message']===$reply['message'],'quotes and backslashes survive WordPress unslashing');
 expect(count(call_support($reply)->data['messages'])===2&&count($GLOBALS['comments'])===1,'reply replay is idempotent');
 $GLOBALS['posts'][(int)$id]->comment_status='closed';$reply['idempotency_key']='cccccccc-cccc-cccc-cccc-cccccccccccc';expect(err(call_support($reply),'customer_support_closed'),'closed ticket cannot receive reply');$GLOBALS['posts'][(int)$id]->comment_status='open';
 $GLOBALS['comments'][2]=(object)['comment_ID'=>2,'comment_post_ID'=>(int)$id,'comment_approved'=>1,'comment_type'=>'comment','user_id'=>1,'comment_content'=>'Staff answer'];
