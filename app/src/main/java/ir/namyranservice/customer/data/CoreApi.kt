@@ -97,7 +97,7 @@ class CoreApi {
                 connection.outputStream.use { it.write(content.toByteArray(Charsets.UTF_8)) }
             }
             val status = connection.responseCode
-            if (BuildConfig.BUILD_TYPE == "clone2" && Clone2HostAccess.challenge(status, connection.getHeaderField("WWW-Authenticate")))
+            if (BuildConfig.BUILD_TYPE == "clone2" && Clone2HostAccess.challenge(status, connection.getHeaderField("WWW-Authenticate"), connection.contentType))
                 throw CoreFailure("clone2_host_auth_required", "محافظ Clone2 نیاز به ورود دارد؛ «دسترسی محیط آزمایشی» را باز کنید.")
             cookies.put(url.toURI(), connection.headerFields.filterKeys { it != null })
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream

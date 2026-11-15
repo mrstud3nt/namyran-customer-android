@@ -16,6 +16,11 @@ class Clone2HostAccessTest {
         assertFalse(Clone2HostAccess.challenge(403, "Basic realm=fixture"))
         assertFalse(Clone2HostAccess.challenge(401, "Bearer realm=fixture"))
     }
+    @Test fun coreJsonErrorsAreNotHostLoginErrors() {
+        assertFalse(Clone2HostAccess.challenge(401, "Basic realm=WordPress", "application/json; charset=UTF-8"))
+        assertFalse(Clone2HostAccess.challenge(401, "Basic realm=WordPress", "application/problem+json"))
+        assertTrue(Clone2HostAccess.challenge(401, "Basic realm=fixture", "text/html"))
+    }
     @Test fun clearingDropsCredentials() {
         Clone2HostAccess.configure("fixture", "fixture-only"); Clone2HostAccess.clear()
         assertNull(Clone2HostAccess.header("https://clone2.namyranservice.ir/"))

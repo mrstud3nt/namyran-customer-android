@@ -20,6 +20,10 @@ object Clone2HostAccess {
         if (uri.scheme == "https" && uri.host == "clone2.namyranservice.ir" &&
             uri.port == -1 && uri.rawUserInfo == null) authorization else null
     } catch (_: Exception) { null }
-    fun challenge(status: Int, value: String?): Boolean = status == 401 &&
+    fun challenge(status: Int, value: String?, contentType: String? = null): Boolean {
+        val mime = contentType?.substringBefore(';')?.trim()?.lowercase()
+        if (mime == "application/json" || mime?.endsWith("+json") == true) return false
+        return status == 401 &&
         value?.trim()?.let { it.equals("Basic", true) || it.startsWith("Basic ", true) } == true
+    }
 }
