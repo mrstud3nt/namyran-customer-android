@@ -47,6 +47,8 @@ private val AuthColors = lightColorScheme(primary = Color(0xFF075CB4), onPrimary
 
 @Composable
 internal fun CustomerLogin(vm: CustomerViewModel) {
+    var hostAccess by remember { mutableStateOf(false) }
+    if (hostAccess) Clone2AccessDialog { hostAccess = false; vm.dismissError(); vm.refreshCatalog(true) }
     var page by rememberSaveable { mutableStateOf("sms") }
     var phone by rememberSaveable { mutableStateOf(vm.mobile.takeIf { vm.otpSent } ?: vm.rememberedMobile) }
     var rememberPhone by rememberSaveable { mutableStateOf(vm.rememberedMobile.isNotBlank()) }
@@ -172,6 +174,7 @@ internal fun CustomerLogin(vm: CustomerViewModel) {
                             }
                             AuthError(localError.ifBlank { vm.error }, vm.lastFailureCode)
                             GoldButton("ورود با پیامک", !busy && remaining == 0L, ::send)
+                            if (BuildConfig.BUILD_TYPE == "clone2") TextButton(onClick = { hostAccess = true }, enabled = !busy) { Text("دسترسی محیط آزمایشی") }
                             if (remaining > 0) AuthText("ارسال دوباره تا " + persianDigits(remaining.toString()) + " ثانیه دیگر", color = Gold)
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                                 TextButton(onClick = { changePage("register") }, enabled = !busy) { AuthText("ثبت‌نام") }
