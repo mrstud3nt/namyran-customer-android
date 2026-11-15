@@ -14,7 +14,7 @@ assert 'BACKEND_ENABLED", "true"' in build
 # Core API requests still use the Stage host exclusively.
 source_hosts = source.replace('android.net.Uri.parse("https://wa.me/989375846363")', '')
 for host in re.findall(r'https?://([^/\s"\\]+)',build+source_hosts):
-    assert host=='stage.namyranservice.ir', f'Unexpected runtime host: {host}'
+    assert host in {'stage.namyranservice.ir','clone2.namyranservice.ir'}, f'Unexpected runtime host: {host}'
 assert 'instanceFollowRedirects = false' in source
 assert 'AndroidKeyStore' in source
 assert 'WebView' not in source

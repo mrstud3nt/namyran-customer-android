@@ -2,15 +2,22 @@
 /**
  * Plugin Name: Namyran Customer Stage Bridge
  * Description: Native customer metadata and verified email from the installed Core; Stage only.
- * Version: 0.2.1
+ * Version: 0.3.0
  */
 if (!defined('ABSPATH')) exit;
 final class Namyran_Customer_Stage_Bridge {
     public static function enabled(): bool {
+        global $wpdb;
+        $origin = null;
         foreach (array(home_url('/'), site_url('/')) as $url) {
             $p=wp_parse_url($url);
-            if (($p['scheme']??'')!=='https'||strtolower($p['host']??'')!=='stage.namyranservice.ir'||(!empty($p['port'])&&(int)$p['port']!==443)) return false;
+            $host = strtolower($p['host']??'');
+            if (($p['scheme']??'')!=='https'||!in_array($host,array('stage.namyranservice.ir','clone2.namyranservice.ir'),true)||(!empty($p['port'])&&(int)$p['port']!==443)||isset($p['user'])||isset($p['pass'])) return false;
+            if ($origin!==null && $origin!==$host) return false;
+            $origin=$host;
         }
+        if ($origin==='clone2.namyranservice.ir' && (!defined('DB_NAME')
+            || DB_NAME!=='hvvzvqvi_namyran_stage_clone2' || $wpdb->prefix!=='wp_stage')) return false;
         return class_exists('NSC_Utils') && class_exists('NSC_Catalog') && class_exists('NSC_Geo_Data');
     }
     public static function permission() {
@@ -84,6 +91,7 @@ final class Namyran_Customer_Stage_Bridge {
 }
 add_action('rest_api_init',array('Namyran_Customer_Stage_Bridge','register'));
 require_once __DIR__ . '/customer-email.php';
+require_once __DIR__ . '/customer-support.php';
 add_action('rest_api_init', static function () {
     foreach (array('profile-email'=>'profile','receipt-email'=>'receipt') as $path=>$method) {
         register_rest_route('namyran-customer/v1','/'.$path,array(

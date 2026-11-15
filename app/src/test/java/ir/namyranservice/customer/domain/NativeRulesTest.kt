@@ -25,6 +25,12 @@ class NativeRulesTest {
         assertTrue(NativeRules.allowedBase("https://stage.namyranservice.ir/wp-json/"))
         listOf("http://stage.namyranservice.ir/wp-json/","https://namyranservice.ir/wp-json/","https://namyran.ir/wp-json/","https://stage.namyranservice.ir.evil.test/wp-json/","https://user@stage.namyranservice.ir/wp-json/","https://stage.namyranservice.ir:443/wp-json/","https://stage.namyranservice.ir/wp-json/?target=other","https://stage.namyranservice.ir/wp-json/#other","https://stage.namyranservice.ir/other/","bad").forEach{assertFalse(it,NativeRules.allowedBase(it))}
     }
+    @Test fun clone2CannotFallBackToStageOrProduction(){
+        assertTrue(NativeRules.allowedBase("https://clone2.namyranservice.ir/wp-json/","clone2.namyranservice.ir"))
+        assertFalse(NativeRules.allowedBase("https://stage.namyranservice.ir/wp-json/","clone2.namyranservice.ir"))
+        assertFalse(NativeRules.allowedBase("https://clone2.namyranservice.ir/wp-json/"))
+        assertFalse(NativeRules.allowedBase("https://namyranservice.ir/wp-json/","namyranservice.ir"))
+    }
     @Test fun onlyExplicitNonceRejectionsAllowAutomaticRetry(){
         assertTrue(NativeRules.mayRefreshNonce("nsc_frontend_nonce_denied"))
         assertTrue(NativeRules.mayRefreshNonce("rest_cookie_invalid_nonce"))

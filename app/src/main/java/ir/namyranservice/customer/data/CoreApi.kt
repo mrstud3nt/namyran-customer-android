@@ -56,7 +56,8 @@ class CoreApi {
     private val cookies = CookieManager(null, CookiePolicy.ACCEPT_ORIGINAL_SERVER)
     private var nonce = ""
     private var restNonce = ""
-    init { require(NativeRules.allowedBase(BuildConfig.API_BASE_URL)) }
+    init { require(NativeRules.allowedBase(BuildConfig.API_BASE_URL,
+        if (BuildConfig.BUILD_TYPE == "clone2") "clone2.namyranservice.ir" else "stage.namyranservice.ir")) }
 
     private fun request(path: String, method: String, content: String? = null, form: Boolean = false, images: List<JSONObject> = emptyList(), imageStore: AttachmentStore? = null): JSONObject {
         val url = if (path.startsWith("/wp-admin/")) URL(origin + path) else base.resolve(path).toURL()

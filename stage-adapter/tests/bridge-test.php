@@ -1,6 +1,7 @@
 <?php
 // Isolated unit fixtures, never installed on WordPress and never used by the APK.
 define('ABSPATH',__DIR__);define('MINUTE_IN_SECONDS',60);define('NSC_VERSION','test-core');
+define('DB_NAME','hvvzvqvi_namyran_stage_clone2');$GLOBALS['wpdb']=(object)array('prefix'=>'wp_stage');
 $GLOBALS['host']='stage.namyranservice.ir';$GLOBALS['title']='Current device';$GLOBALS['enabled']=true;
 function home_url($path='/'){return 'https://'.$GLOBALS['host'].$path;}
 function site_url($path='/'){return home_url($path);}
@@ -30,6 +31,8 @@ require dirname(__DIR__).'/namyran-customer-stage-bridge/namyran-customer-stage-
 function expect($value,$label){if(!$value)throw new RuntimeException($label);echo "PASS $label\n";}
 expect(Namyran_Customer_Stage_Bridge::enabled(),'Stage enabled');
 $GLOBALS['host']='namyranservice.ir';expect(!Namyran_Customer_Stage_Bridge::enabled(),'Production refused');
+$GLOBALS['host']='clone2.namyranservice.ir';expect(Namyran_Customer_Stage_Bridge::enabled(),'Clone2 enabled');
+$GLOBALS['wpdb']->prefix='wp_';expect(!Namyran_Customer_Stage_Bridge::enabled(),'Clone2 wrong prefix refused');$GLOBALS['wpdb']->prefix='wp_stage';
 $GLOBALS['host']='stage.namyranservice.ir.evil.test';expect(!Namyran_Customer_Stage_Bridge::enabled(),'Lookalike host refused');
 $GLOBALS['host']='stage.namyranservice.ir';$GLOBALS['enabled']=false;expect(Namyran_Customer_Stage_Bridge::permission() instanceof WP_Error,'Rate limit enforced');$GLOBALS['enabled']=true;
 $r=Namyran_Customer_Stage_Bridge::config();expect(!isset($r->data['publicApiNonce']),'No cached nonce returned');expect($r->headers['Cache-Control']==='no-store, private','Uncached metadata');expect(strpos(json_encode($r->data),'private_admin_field')===false,'City metadata allowlisted');
