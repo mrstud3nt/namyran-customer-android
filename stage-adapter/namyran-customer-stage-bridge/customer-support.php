@@ -40,9 +40,11 @@ final class Namyran_Stage_Customer_Support {
             && hash_equals($owner, (string)get_post_meta($id, '_nsc_support_owner', true)) ? $post : null;
     }
 
-    private static function messages($post): WP_REST_Response {
+    private static function messages($post): WP_REST_Response|WP_Error {
+        global $wpdb;
         $rows = array(array('id'=>'initial', 'sender'=>'customer', 'message'=>$post->post_content));
         $comments = get_comments(array('post_id'=>$post->ID,'status'=>'approve','order'=>'DESC','number'=>100));
+        if ($wpdb->last_error) return self::error('customer_support_storage',503);
         foreach (array_reverse($comments) as $comment) {
             // Only our customer inserts or replies from an authorized WordPress administrator.
             if ($comment->comment_type!=='nsc_customer_reply'
@@ -56,6 +58,7 @@ final class Namyran_Stage_Customer_Support {
     }
 
     public static function handle(WP_REST_Request $request) {
+        global $wpdb;
         $owner = self::owner($request);
         if ($owner==='') return self::error('customer_support_auth',403);
         if (!NSC_Utils::rate_limit('customer_support|'.$owner.'|'.NSC_Utils::ip_hash(),90,MINUTE_IN_SECONDS))
@@ -67,6 +70,7 @@ final class Namyran_Stage_Customer_Support {
         if ($action==='tickets') {
             $posts = get_posts(array('post_type'=>self::TYPE,'post_status'=>'private','numberposts'=>100,
                 'orderby'=>'ID','order'=>'DESC','cache_results'=>false,'meta_key'=>'_nsc_support_owner','meta_value'=>$owner));
+            if ($wpdb->last_error) return self::error('customer_support_storage',503);
             $rows = array();
             foreach ($posts as $post) $rows[]=array('id'=>(string)$post->ID,'code'=>'NSC-'.$post->ID,
                 'subject'=>$post->post_title,'status_label'=>$post->comment_status==='open'?'باز':'بسته');

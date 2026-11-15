@@ -17,13 +17,14 @@ function get_post($id){return isset($GLOBALS['posts'][$id])?clone $GLOBALS['post
 function get_post_meta($id,$k,$single){return $GLOBALS['meta'][$id][$k]??'';}
 function add_post_meta($id,$k,$v,$unique){if($GLOBALS['fail_meta'])return false;$GLOBALS['meta'][$id][$k]=$v;return 1;}
 function get_posts($args){
+ if(!empty($GLOBALS['fail_read'])){$GLOBALS['wpdb']->last_error='fixture_read_error';return [];}
  $rows=[];foreach($GLOBALS['posts'] as $id=>$p){if($p->post_status!==$args['post_status']||$p->post_type!==$args['post_type'])continue;
  $v=$GLOBALS['meta'][$id][$args['meta_key']]??null;if($v===null||isset($args['meta_value'])&&$v!==$args['meta_value'])continue;$rows[]=clone $p;}
  return array_slice(array_reverse($rows),0,$args['numberposts']);
 }
 function wp_insert_post($data,$errors){$id=++$GLOBALS['sequence'];$GLOBALS['posts'][$id]=(object)array_merge($data,['ID'=>$id,'post_title'=>stripslashes($data['post_title']),'post_content'=>stripslashes($data['post_content'])]);$GLOBALS['meta'][$id]=$data['meta_input'];return $id;}
 function wp_insert_comment($data){$data=array_map(fn($v)=>is_string($v)?stripslashes($v):$v,$data);$id=count($GLOBALS['comments'])+1;$GLOBALS['comments'][$id]=(object)array_merge($data,['comment_ID'=>$id]);return $id;}
-function get_comments($args){$rows=array_filter($GLOBALS['comments'],fn($x)=>$x->comment_post_ID===$args['post_id']&&$x->comment_approved===1);return array_reverse(array_values($rows));}
+function get_comments($args){if(!empty($GLOBALS['fail_read'])){$GLOBALS['wpdb']->last_error='fixture_read_error';return [];}$rows=array_filter($GLOBALS['comments'],fn($x)=>$x->comment_post_ID===$args['post_id']&&$x->comment_approved===1);return array_reverse(array_values($rows));}
 class FixtureDB {
  public $prefix='wp_fixture_',$posts='wp_posts',$postmeta='wp_postmeta',$comments='wp_comments',$commentmeta='wp_commentmeta',$last_error='';private $snapshot;
  function prepare($sql,...$args){return ['sql'=>$sql,'args'=>$args];}
@@ -62,6 +63,8 @@ $GLOBALS['comments'][2]=(object)['comment_ID'=>2,'comment_post_ID'=>(int)$id,'co
 $GLOBALS['comments'][3]=(object)['comment_ID'=>3,'comment_post_ID'=>(int)$id,'comment_approved'=>1,'comment_type'=>'comment','user_id'=>22,'comment_content'=>'Unprivileged comment'];
 $r=call_support(['action'=>'messages','ticket_id'=>$id]);expect(count($r->data['messages'])===3&&$r->data['messages'][2]['sender']==='support','only administrator replies are exposed');
 expect(call_support(['action'=>'chat'])->data['online']===false,'no fictitious operator presence');
+$GLOBALS['fail_read']=true;expect(err(call_support(['action'=>'tickets']),'customer_support_storage'),'database failure is not an empty ticket list');$GLOBALS['wpdb']->last_error='';
+expect(err(call_support(['action'=>'messages','ticket_id'=>$id]),'customer_support_storage'),'database failure is not an empty conversation');$GLOBALS['wpdb']->last_error='';$GLOBALS['fail_read']=false;
 $GLOBALS['engine']='MyISAM';expect(err(call_support($reply),'customer_support_engine'),'nontransactional storage refused');$GLOBALS['engine']='InnoDB';
 $GLOBALS['lock']=false;expect(err(call_support($reply),'customer_support_busy'),'busy lock refused');$GLOBALS['lock']=true;
 $GLOBALS['fail_meta']=true;expect(err(call_support($reply),'customer_support_storage')&&count($GLOBALS['comments'])===3,'metadata failure rolls back reply');$GLOBALS['fail_meta']=false;
