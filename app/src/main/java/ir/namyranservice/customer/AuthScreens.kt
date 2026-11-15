@@ -108,7 +108,7 @@ internal fun CustomerLogin(vm: CustomerViewModel) {
         LocalLayoutDirection provides if (english) LayoutDirection.Ltr else LayoutDirection.Rtl) {
     MaterialTheme(colorScheme = AuthColors) {
         if (vm.hasSavedSession) {
-            SessionOpening(vm)
+            SessionOpening(vm) { hostAccess = true }
             return@MaterialTheme
         }
         Scaffold(containerColor = Ink, contentWindowInsets = WindowInsets.systemBars) { padding ->
@@ -346,7 +346,7 @@ private fun RowScope.Assurance(icon: ImageVector, title: String) {
 }
 
 @Composable
-private fun SessionOpening(vm: CustomerViewModel) {
+private fun SessionOpening(vm: CustomerViewModel, onHostAccess: () -> Unit) {
     val animation = rememberInfiniteTransition(label = "Brand loading")
     val opacity by animation.animateFloat(0.5f, 1f,
         infiniteRepeatable(tween(1000), RepeatMode.Reverse), label = "Logo pulse")
@@ -362,6 +362,9 @@ private fun SessionOpening(vm: CustomerViewModel) {
             else {
                 AuthError(vm.error, vm.lastFailureCode)
                 Button(onClick = vm::refresh) { AuthText("تلاش دوباره") }
+                if (BuildConfig.BUILD_TYPE == "clone2") TextButton(onClick = onHostAccess) {
+                    AuthText("دسترسی محیط آزمایشی", color = Color.White)
+                }
             }
         }
     }

@@ -245,6 +245,7 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
             val account = try {
                 api.post("otp/session", auth().put("purpose", "customer_service"))
             } catch (e: CoreFailure) {
+                if (e.code == "clone2_host_auth_required") throw e
                 if (e.code == "nsc_session_expired") {
                     return@launchTask {
                         clearSession()
@@ -270,6 +271,7 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
                 val response = api.post("my-requests", credentials)
                 response.optJSONArray("requests")?.takeIf { response.optBoolean("success") }?.objects()
             } catch (e: CoreFailure) {
+                if (e.code == "clone2_host_auth_required") throw e
                 if (e.code == "nsc_my_requests_auth" && renewedToken == null) throw e
                 null
             } catch (_: java.io.IOException) {
