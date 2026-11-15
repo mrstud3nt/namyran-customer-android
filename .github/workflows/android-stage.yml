@@ -136,6 +136,10 @@ jobs:
         with:
           name: Namyran-Customer-Stage-v0.5.3-debug
           path: smoke-apk
+      - uses: actions/download-artifact@v4
+        with:
+          name: Namyran-Customer-Clone2-v0.5.3
+          path: clone2-smoke-apk
       - name: Verify live Stage metadata before emulator
         run: python3 audit/probe_stage_readonly.py
       - name: Enable KVM
@@ -151,7 +155,9 @@ jobs:
           arch: x86_64
           profile: pixel_6
           disable-animations: true
-          script: python3 scripts/run_device_checks.py smoke-apk
+          script: |
+            python3 scripts/run_device_checks.py smoke-apk
+            python3 scripts/clone2_host_dialog_smoke.py clone2-smoke-apk/app-clone2.apk
       - name: Upload device evidence
         if: always()
         uses: actions/upload-artifact@v4

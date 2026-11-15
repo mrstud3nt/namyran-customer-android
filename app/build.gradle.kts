@@ -6,6 +6,7 @@ android {
     namespace = "ir.namyranservice.customer"
     compileSdk = 36
     defaultConfig {
+        manifestPlaceholders["appLabel"] = "نامیران سرویس آزمایشی"
         applicationId = "ir.namyranservice.customer.stage"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         minSdk = 26
@@ -20,6 +21,7 @@ android {
             isMinifyEnabled = false
         }
         create("clone2") {
+            manifestPlaceholders["appLabel"] = "نامیران مشتری Clone2"
             initWith(getByName("debug"))
             applicationIdSuffix = ".clone2"
             versionNameSuffix = "-clone2"
