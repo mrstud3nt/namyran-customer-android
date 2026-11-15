@@ -23,3 +23,6 @@ auth=(root/'app/src/main/java/ir/namyranservice/customer/AuthScreens.kt').read_t
 assert not any(marker in auth for marker in ('demoChallenge', 'onDemo', '09022896363', '"1111"')), 'Synthetic login bypass must not ship'
 assert 'vm.verifyOtp(code)' in auth
 print('PASS: Stage identity, HTTPS only, redirect rejection, native UI and encrypted session storage')
+
+assert "vm.signInWithGoogle(context)" not in auth
+assert not any(marker in auth for marker in ('AuthField("نام کاربری"', 'AuthField("رمز عبور"', 'changePage("password")')), "Only OTP login is approved"

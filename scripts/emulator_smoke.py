@@ -92,14 +92,10 @@ try:
     assert any(n.get('text')=='09123456789' for n in root.iter('node')), 'Phone lost on language change'
     screenshot('english-keyboard')
     tap(next(n for n in root.iter('node') if n.get('content-desc')=='Change login language'))
-    tap_label('keyboard-submit-visible','ورود با نام کاربری و رمز عبور')
-    root=dump('password-before-focus')
-    tap(next(n for n in root.iter('node') if n.get('class')=='android.widget.EditText'))
-    adb('shell','input','text','ui_layout_check')
-    root=dump('keyboard-password-form')
-    assert any(n.get('text')=='ui_layout_check' for n in root.iter('node')), 'Username lost with keyboard'
-    assert any(n.get('text')=='نام کاربری' for n in root.iter('node')), 'Username input missing with keyboard'
-    screenshot('keyboard-password-form')
+    root=dump('otp-only-keyboard')
+    labels={n.get('text') for n in root.iter('node')}
+    assert not {'نام کاربری','رمز عبور','ورود با حساب Google'} & labels, 'Non-OTP login control remains'
+    screenshot('otp-only-keyboard')
     adb('shell','input','keyevent','KEYCODE_BACK')
     adb('shell','am','force-stop',pkg)
     adb('shell','am','start','-W','-n',pkg+'/ir.namyranservice.customer.MainActivity')
@@ -124,13 +120,6 @@ try:
     adb('shell','settings','put','system','user_rotation','1');time.sleep(2)
     assert_login('login-landscape')
     adb('shell','settings','put','system','user_rotation','0');time.sleep(2)
-    tap_label('password-method', 'ورود با نام کاربری و رمز عبور')
-    root=dump('password-controls')
-    screenshot('password-screen')
-    labels={n.get('text') for n in root.iter('node')}
-    assert {'نام کاربری','رمز عبور','فراموشی رمز عبور؟'} <= labels, 'Password form controls missing'
-    tap_label('reset-action','فراموشی رمز عبور؟')
-    screenshot('recovery-screen')
     tap_label('registration-action','ثبت‌نام')
     screenshot('registration-screen')
     adb('shell','input','keyevent','KEYCODE_BACK')

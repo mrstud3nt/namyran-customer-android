@@ -49,23 +49,18 @@ private val AuthColors = lightColorScheme(primary = Color(0xFF075CB4), onPrimary
 internal fun CustomerLogin(vm: CustomerViewModel) {
     var page by rememberSaveable { mutableStateOf("sms") }
     var phone by rememberSaveable { mutableStateOf(vm.mobile.takeIf { vm.otpSent } ?: vm.rememberedMobile) }
-    var username by rememberSaveable { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
-    var revealPassword by remember { mutableStateOf(false) }
     var rememberPhone by rememberSaveable { mutableStateOf(vm.rememberedMobile.isNotBlank()) }
     var code by remember { mutableStateOf("") }
     var pendingSms by remember { mutableStateOf("") }
     var localError by remember { mutableStateOf("") }
     var help by remember { mutableStateOf(false) }
     var listening by remember { mutableStateOf(false) }
-    var sendingGoogle by remember { mutableStateOf(false) }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     val context = LocalContext.current
     val languagePrefs = remember { context.getSharedPreferences("customer_language", 0) }
     var english by rememberSaveable { mutableStateOf(languagePrefs.getBoolean("english", false)) }
-    val scope = rememberCoroutineScope()
     val formScroll = rememberScrollState()
-    val busy = vm.busy || listening || sendingGoogle
+    val busy = vm.busy || listening
     val codeStep = vm.otpSent
     LaunchedEffect(page, codeStep) { formScroll.scrollTo(0) }
     val listen = rememberSmsCodeConsent { received ->
@@ -74,7 +69,7 @@ internal fun CustomerLogin(vm: CustomerViewModel) {
     }
     fun changePage(next: String) {
         if (busy) return
-        password = ""; revealPassword = false; localError = ""; vm.dismissError()
+        localError = ""; vm.dismissError()
         page = next
     }
     fun send() {
@@ -162,70 +157,22 @@ internal fun CustomerLogin(vm: CustomerViewModel) {
                                 code = ""; localError = ""; vm.editOtpMobile()
                             }, modifier = Modifier.fillMaxWidth()) { AuthText("بازگشت و ویرایش شماره موبایل") }
                         } else {
-                            AuthHeading(when (page) {
-                                "password" -> "ورود با نام کاربری"
-                                "register" -> "ایجاد حساب مشتری"
-                                "reset" -> "بازیابی دسترسی به حساب"
-                                else -> "ورود به حساب کاربری"
-                            }, if (page == "password") Icons.Outlined.PersonOutline else Icons.Outlined.PersonOutline)
+                            AuthHeading(if (page == "register") "ایجاد حساب مشتری" else "ورود به حساب کاربری", Icons.Outlined.PersonOutline)
                             if (vm.message.isNotBlank()) AuthText(vm.message, color = Electric)
-                            if (page == "password") {
-                                AuthField("نام کاربری", username, { username = it.take(100); localError = "" }, Icons.Outlined.PersonOutline, !busy)
-                                AuthField("رمز عبور", password, { password = it.take(256); localError = "" }, Icons.Outlined.Lock, !busy,
-                                    type = KeyboardType.Password,
-                                    transformation = if (revealPassword) VisualTransformation.None else PasswordVisualTransformation(),
-                                    trailing = {
-                                        IconButton(onClick = { revealPassword = !revealPassword }) {
-                                            Icon(if (revealPassword) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
-                                                if (revealPassword) "پنهان‌کردن رمز" else "نمایش رمز")
-                                        }
-                                    })
-                                TextButton(onClick = { changePage("reset") }, enabled = !busy) { AuthText("فراموشی رمز عبور؟", color = Electric) }
-                                AuthText("ورود با رمز عبور در حال حاضر در دسترس نیست. برای ورود به حساب از پیامک استفاده کنید.",
-                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                GoldButton("ادامه با پیامک", !busy) { changePage("sms") }
-                            } else {
-                                if (page == "register") AuthText("با تأیید شماره همراه، دسترسی مشتری به درخواست‌ها و خدمات فعال می‌شود.")
-                                if (page == "reset") AuthText("شماره همراه حساب را تأیید کنید تا دوباره وارد شوید. تغییر رمز عبور پس از فعال‌شدن این قابلیت در دسترس خواهد بود.")
-                                AuthField("شماره موبایل", phone, {
-                                    phone = normalizedDigits(it).filter { c -> c in '0'..'9' }.take(11)
-                                    localError = ""; vm.dismissError()
-                                }, Icons.Outlined.PhoneAndroid, !busy, KeyboardType.Phone)
-                                Row(Modifier.fillMaxWidth().toggleableAuth(!busy, rememberPhone) {
-                                    rememberPhone = it; if (!it) vm.rememberMobile(false)
-                                }, verticalAlignment = Alignment.CenterVertically) {
-                                    Checkbox(rememberPhone, null, enabled = !busy)
-                                    AuthText("شماره‌ام را به خاطر بسپار", modifier = Modifier.padding(8.dp), style = MaterialTheme.typography.bodySmall)
-                                }
-                                AuthError(localError.ifBlank { vm.error }, vm.lastFailureCode)
-                                GoldButton("ورود با پیامک", !busy && remaining == 0L, ::send)
-                                if (remaining > 0) AuthText("ارسال دوباره تا " + persianDigits(remaining.toString()) + " ثانیه دیگر", color = Gold)
+                            if (page == "register") AuthText("با تأیید شماره همراه، دسترسی مشتری به درخواست‌ها و خدمات فعال می‌شود.")
+                            AuthField("شماره موبایل", phone, {
+                                phone = normalizedDigits(it).filter { c -> c in '0'..'9' }.take(11)
+                                localError = ""; vm.dismissError()
+                            }, Icons.Outlined.PhoneAndroid, !busy, KeyboardType.Phone)
+                            Row(Modifier.fillMaxWidth().toggleableAuth(!busy, rememberPhone) {
+                                rememberPhone = it; if (!it) vm.rememberMobile(false)
+                            }, verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(rememberPhone, null, enabled = !busy)
+                                AuthText("شماره‌ام را به خاطر بسپار", modifier = Modifier.padding(8.dp), style = MaterialTheme.typography.bodySmall)
                             }
-                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                HorizontalDivider(Modifier.weight(1f)); AuthText("یا"); HorizontalDivider(Modifier.weight(1f))
-                            }
-                            if (page != "password") OutlinedButton(onClick = { changePage("password") },
-                                enabled = !busy, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                                colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.White.copy(alpha = 0.8f))) {
-                                Icon(Icons.Outlined.PersonOutline, null)
-                                Spacer(Modifier.width(8.dp))
-                                AuthText("ورود با نام کاربری و رمز عبور", fontWeight = FontWeight.Bold)
-                            }
-                            OutlinedButton(enabled = !busy, onClick = {
-                                password = ""; sendingGoogle = true; localError = ""
-                                scope.launch {
-                                    try { vm.signInWithGoogle(context) }
-                                    finally { sendingGoogle = false }
-                                }
-                            }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                                border = BorderStroke(1.dp, Color(0xFF88919D)),
-                                colors = ButtonDefaults.outlinedButtonColors(containerColor = Color(0xFF172332))) {
-                                AuthText("G", color = Color(0xFF4285F4), fontWeight = FontWeight.ExtraBold, fontSize = 24.sp)
-                                Spacer(Modifier.width(8.dp))
-                                AuthText("ورود با حساب Google", color = Color.White)
-                            }
-                            if (page == "password") AuthError(localError.ifBlank { vm.error }, vm.lastFailureCode)
+                            AuthError(localError.ifBlank { vm.error }, vm.lastFailureCode)
+                            GoldButton("ورود با پیامک", !busy && remaining == 0L, ::send)
+                            if (remaining > 0) AuthText("ارسال دوباره تا " + persianDigits(remaining.toString()) + " ثانیه دیگر", color = Gold)
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                                 TextButton(onClick = { changePage("register") }, enabled = !busy) { AuthText("ثبت‌نام") }
                                 TextButton(onClick = { help = true }) { AuthText("راهنما") }

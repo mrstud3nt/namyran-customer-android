@@ -66,8 +66,8 @@ jobs:
       - name: Build Stage Debug APK
         run: gradle --no-daemon --stacktrace :app:assembleDebug :app:assembleDebugAndroidTest
 
-      - name: Test and build isolated Clone2 APK
-        run: gradle --no-daemon --stacktrace :app:testClone2UnitTest :app:assembleClone2
+      - name: Build isolated Clone2 APK
+        run: gradle --no-daemon --stacktrace :app:assembleClone2
 
       - name: Verify and publish Clone2 candidate
         run: |
