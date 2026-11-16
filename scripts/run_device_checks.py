@@ -7,4 +7,7 @@ for apk in (root/'debug/app-debug.apk',root/'androidTest/debug/app-debug-android
 r=subprocess.run(['adb','shell','am','instrument','-w','-r','-e','class','ir.namyranservice.customer.AttachmentStoreTest','ir.namyranservice.customer.stage.test/androidx.test.runner.AndroidJUnitRunner'],capture_output=True,text=True,timeout=180)
 log=r.stdout+'\n'+r.stderr;(out/'image-tests.txt').write_text(log);print(log)
 assert r.returncode==0 and 'OK (2 tests)' in log and 'FAILURES' not in log,'Image instrumentation failed'
+r=subprocess.run(['adb','shell','am','instrument','-w','-r','-e','class','ir.namyranservice.customer.Clone2HostStoreTest','ir.namyranservice.customer.stage.test/androidx.test.runner.AndroidJUnitRunner'],capture_output=True,text=True,timeout=180)
+log=r.stdout+'\n'+r.stderr;(out/'host-store-tests.txt').write_text(log);print(log)
+assert r.returncode==0 and 'OK (4 tests)' in log and 'FAILURES' not in log,'Host storage instrumentation failed'
 subprocess.run([sys.executable,'scripts/emulator_smoke.py',str(root/'debug/app-debug.apk')],check=True)

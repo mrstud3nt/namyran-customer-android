@@ -6,12 +6,15 @@ import java.io.IOException
 
 class Clone2HostAccessRequired : IOException("محافظ Clone2 نیاز به ورود دارد؛ «دسترسی محیط آزمایشی» را باز کنید.")
 
-/** Process memory only; never persists, logs, or forwards a host credential. */
+/** Holds active credentials in memory; persistent storage is handled by Clone2HostStore. */
 object Clone2HostAccess {
     @Volatile private var authorization: String? = null
-    fun configure(username: String, password: String) {
+    fun validate(username: String, password: String) {
         require(username.isNotBlank() && ':' !in username && password.isNotEmpty())
         require((username + password).none { it.isISOControl() })
+    }
+    fun configure(username: String, password: String) {
+        validate(username, password)
         authorization = "Basic " + Base64.getEncoder().encodeToString("$username:$password".toByteArray(Charsets.UTF_8))
     }
     fun clear() { authorization = null }
