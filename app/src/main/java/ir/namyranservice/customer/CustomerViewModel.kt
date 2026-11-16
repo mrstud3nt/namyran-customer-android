@@ -225,7 +225,7 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
                     resendAt = System.currentTimeMillis() + seconds * 1000
                 }
                 lastFailureCode = if (e is CoreFailure) e.code else "network_error"
-                error = when(e) { is CoreFailure -> e.message ?: "خطای Core"; else -> "ارتباط با Stage کامل نشد؛ اتصال اینترنت را بررسی و دوباره تلاش کنید." }
+                error = when(e) { is CoreFailure -> e.message ?: "خطای Core"; else -> "ارتباط با سرور کامل نشد؛ اتصال اینترنت را بررسی و دوباره تلاش کنید." }
                 busy=false
             } }
         }
@@ -245,6 +245,7 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
             val account = try {
                 api.post("otp/session", auth().put("purpose", "customer_service"))
             } catch (e: CoreFailure) {
+                if (e.code == "clone2_host_auth_required") throw e
                 if (e.code == "nsc_session_expired") {
                     return@launchTask {
                         clearSession()
@@ -270,6 +271,7 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
                 val response = api.post("my-requests", credentials)
                 response.optJSONArray("requests")?.takeIf { response.optBoolean("success") }?.objects()
             } catch (e: CoreFailure) {
+                if (e.code == "clone2_host_auth_required") throw e
                 if (e.code == "nsc_my_requests_auth" && renewedToken == null) throw e
                 null
             } catch (_: java.io.IOException) {
@@ -364,7 +366,7 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
         launchTask {
             val r=api.post("otp/send",JSONObject().put("mobile",numberClean).put("purpose","customer_service").put("website",""))
             if(!r.optBoolean("success")) throw CoreFailure("otp_failed","ارسال کد تأیید نشد.")
-            if(r.optBoolean("dev_mode")) throw CoreFailure("otp_dev_mode","Core در حالت کد آزمایشی است؛ ارسال واقعی پیامک تأیید نشد. تنظیم ارسال واقعی باید در Stage اصلاح شود.")
+            if(r.optBoolean("dev_mode")) throw CoreFailure("otp_dev_mode","Core در حالت کد آزمایشی است؛ ارسال واقعی پیامک تأیید نشد. تنظیم ارسال واقعی باید در محیط آزمایشی بررسی شود.")
             val until=System.currentTimeMillis()+r.optInt("resend_in",90)*1000L
             val expiresAt = System.currentTimeMillis() + r.getLong("expires_in").coerceIn(1, 600) * 1000
             return@launchTask { otpExpiresAt=expiresAt; otpGeneration++; mobile=numberClean;rememberMobile(remember,numberClean);otpSent=true;resendAt=until;message=r.optString("message") }

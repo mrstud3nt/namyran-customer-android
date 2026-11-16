@@ -6,18 +6,27 @@ android {
     namespace = "ir.namyranservice.customer"
     compileSdk = 36
     defaultConfig {
+        manifestPlaceholders["appLabel"] = "نامیران سرویس آزمایشی"
         applicationId = "ir.namyranservice.customer.stage"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         minSdk = 26
         targetSdk = 35
-        versionCode = 22
-        versionName = "0.5.1-stage"
+        versionCode = 25
+        versionName = "0.5.4-test"
         buildConfigField("String", "API_BASE_URL", "\"https://stage.namyranservice.ir/wp-json/\"")
         buildConfigField("boolean", "BACKEND_ENABLED", "true")
     }
     buildTypes {
         release {
             isMinifyEnabled = false
+        }
+        create("clone2") {
+            manifestPlaceholders["appLabel"] = "نامیران مشتری Clone2"
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".clone2"
+            versionNameSuffix = "-clone2"
+            buildConfigField("String", "API_BASE_URL", "\"https://clone2.namyranservice.ir/wp-json/\"")
+            matchingFallbacks += "debug"
         }
     }
     buildFeatures { compose = true; buildConfig = true }

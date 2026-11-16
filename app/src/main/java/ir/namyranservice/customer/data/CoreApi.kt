@@ -56,13 +56,17 @@ class CoreApi {
     private val cookies = CookieManager(null, CookiePolicy.ACCEPT_ORIGINAL_SERVER)
     private var nonce = ""
     private var restNonce = ""
-    init { require(NativeRules.allowedBase(BuildConfig.API_BASE_URL)) }
+    init { require(NativeRules.allowedBase(BuildConfig.API_BASE_URL,
+        if (BuildConfig.BUILD_TYPE == "clone2") "clone2.namyranservice.ir" else "stage.namyranservice.ir")) }
 
     private fun request(path: String, method: String, content: String? = null, form: Boolean = false, images: List<JSONObject> = emptyList(), imageStore: AttachmentStore? = null): JSONObject {
         val url = if (path.startsWith("/wp-admin/")) URL(origin + path) else base.resolve(path).toURL()
         require(url.protocol == "https" && url.host == base.host && url.port == -1)
         val connection = url.openConnection() as HttpURLConnection
         try {
+            if (BuildConfig.BUILD_TYPE == "clone2") Clone2HostAccess.header(url.toString())?.let {
+                connection.setRequestProperty("Authorization", it)
+            }
             connection.instanceFollowRedirects = false
             connection.connectTimeout = 15000; connection.readTimeout = 30000
             connection.useCaches = false; connection.requestMethod = method
@@ -93,6 +97,8 @@ class CoreApi {
                 connection.outputStream.use { it.write(content.toByteArray(Charsets.UTF_8)) }
             }
             val status = connection.responseCode
+            if (BuildConfig.BUILD_TYPE == "clone2" && Clone2HostAccess.challenge(status, connection.getHeaderField("WWW-Authenticate"), connection.contentType))
+                throw CoreFailure("clone2_host_auth_required", "محافظ Clone2 نیاز به ورود دارد؛ «دسترسی محیط آزمایشی» را باز کنید.")
             cookies.put(url.toURI(), connection.headerFields.filterKeys { it != null })
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
             val bytes = stream?.use { input ->
@@ -102,7 +108,7 @@ class CoreApi {
             } ?: byteArrayOf()
             if (bytes.size > 2_000_000) throw CoreFailure("response_too_large", "پاسخ سرور بیش از حد مجاز است.")
             val json = try { JSONObject(String(bytes, Charsets.UTF_8)) } catch (_: Exception) {
-                throw CoreFailure("non_json_$status", if (status == 403) "دسترسی Stage توسط محافظ سرور مسدود شده است." else "پاسخ معتبر از Stage دریافت نشد.")
+                throw CoreFailure("non_json_$status", "پاسخ معتبر از ${base.host} دریافت نشد (HTTP $status).")
             }
             if (status !in 200..299) throw CoreFailure(json.optString("code", "http_$status"), json.optString("message", json.optJSONObject("data")?.optString("message") ?: "خطای ارتباط با سرور"), json.optJSONObject("data") ?: JSONObject())
             return json

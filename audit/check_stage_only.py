@@ -14,7 +14,7 @@ assert 'BACKEND_ENABLED", "true"' in build
 # Core API requests still use the Stage host exclusively.
 source_hosts = source.replace('android.net.Uri.parse("https://wa.me/989375846363")', '')
 for host in re.findall(r'https?://([^/\s"\\]+)',build+source_hosts):
-    assert host=='stage.namyranservice.ir', f'Unexpected runtime host: {host}'
+    assert host in {'stage.namyranservice.ir','clone2.namyranservice.ir'}, f'Unexpected runtime host: {host}'
 assert 'instanceFollowRedirects = false' in source
 assert 'AndroidKeyStore' in source
 assert 'WebView' not in source
@@ -23,3 +23,6 @@ auth=(root/'app/src/main/java/ir/namyranservice/customer/AuthScreens.kt').read_t
 assert not any(marker in auth for marker in ('demoChallenge', 'onDemo', '09022896363', '"1111"')), 'Synthetic login bypass must not ship'
 assert 'vm.verifyOtp(code)' in auth
 print('PASS: Stage identity, HTTPS only, redirect rejection, native UI and encrypted session storage')
+
+assert "vm.signInWithGoogle(context)" not in auth
+assert not any(marker in auth for marker in ('AuthField("نام کاربری"', 'AuthField("رمز عبور"', 'changePage("password")')), "Only OTP login is approved"

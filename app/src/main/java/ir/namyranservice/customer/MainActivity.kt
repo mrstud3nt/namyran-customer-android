@@ -67,6 +67,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var vm: CustomerViewModel
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (BuildConfig.BUILD_TYPE == "clone2") ir.namyranservice.customer.data.Clone2HostStore(this).restore()
         vm=ViewModelProvider(this)[CustomerViewModel::class.java]
         setContent { CustomerApp(vm) }
     }
