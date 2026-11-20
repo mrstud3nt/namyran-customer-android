@@ -7,6 +7,9 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -279,7 +282,15 @@ private fun AuthHeading(title: String, icon: ImageVector) {
 private fun AuthField(label: String, value: String, onChange: (String) -> Unit, icon: ImageVector, enabled: Boolean,
                       type: KeyboardType = KeyboardType.Text, transformation: VisualTransformation = VisualTransformation.None,
                       trailing: (@Composable () -> Unit)? = null) {
-    OutlinedTextField(value, onChange, modifier = Modifier.fillMaxWidth(), label = { AuthText(label) },
+    val requester = remember { BringIntoViewRequester() }
+    var focused by remember { mutableStateOf(false) }
+    val imeBottom = WindowInsets.ime.getBottom(LocalDensity.current)
+    LaunchedEffect(focused, imeBottom) {
+        if (focused) { delay(120); requester.bringIntoView() }
+    }
+    // Include the floating label and padding in the rectangle brought above the IME.
+    Box(Modifier.fillMaxWidth().bringIntoViewRequester(requester).padding(top = 8.dp, bottom = 8.dp)) {
+    OutlinedTextField(value, onChange, modifier = Modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused }, label = { AuthText(label) },
         enabled = enabled, singleLine = true, shape = RoundedCornerShape(16.dp),
         leadingIcon = { Icon(icon, null) }, trailingIcon = trailing ?: if (type == KeyboardType.Phone) ({
             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
@@ -291,6 +302,7 @@ private fun AuthField(label: String, value: String, onChange: (String) -> Unit, 
         visualTransformation = transformation, keyboardOptions = KeyboardOptions(keyboardType = type),
         colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Electric, unfocusedBorderColor = Color(0xFF87929E),
             focusedContainerColor = Color(0xFFF8FBFF), unfocusedContainerColor = Color(0xFFEEF3F9)))
+    }
 }
 
 @Composable

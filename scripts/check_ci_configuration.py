@@ -13,7 +13,8 @@ assert "sdkmanager 'platforms;android-36'" in w
 assert 'id("com.android.application") version "9.4.0"' in g
 assert 'id("org.jetbrains.kotlin.plugin.compose") version "2.4.10"' in g
 assert 'compileSdk = 36' in b
-assert 'applicationId = "ir.namyranservice.customer.stage"' in b
+assert 'else "ir.namyranservice.customer.stage"' in b
 assert 'BACKEND_ENABLED", "true"' in b
-assert 'https://namyranservice.ir/' not in b
+assert '.orElse("stage")' in b
+assert '-PnamyranEnvironment=stage' in w
 print('PASS: Stage workflow includes unit tests, lint and reports; Stage backend enabled')

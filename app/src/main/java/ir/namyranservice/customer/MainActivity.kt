@@ -137,7 +137,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     Surface(shape=RoundedCornerShape(16.dp),color=Color.White){androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(R.drawable.namyran_symbol),"نشان نامیران سرویس",Modifier.size(52.dp).padding(4.dp))}
-                    Column{Text("نامیران سرویس",style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold);Text("محیط آزمایش · Stage",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
+                    Column{Text("نامیران سرویس",style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold);Text(if(BuildConfig.ENVIRONMENT == "stage") "محیط آزمایش · Stage" else "خدمات مشتریان",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
                 }
                 IconButton(onClick={vm.setDarkMode(!vm.dark)}){Icon(if(vm.dark)Icons.Outlined.LightMode else Icons.Outlined.DarkMode,"تغییر حالت نمایش")}
             }
@@ -574,10 +574,10 @@ private fun requestState(row: JSONObject): Int = when(row.optString("status")){
             Text("خدمات گارانتی",color=Color.White,style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.Bold)
             Text("پیگیری گارانتی در مرکز گارانتی نامیران",color=Color(0xFFD9E9FF),textAlign=TextAlign.Center)
         }
-        Action("ورود به مرکز گارانتی Stage",!vm.busy){
+        Action("ورود به مرکز گارانتی",!vm.busy){
             val url=config.optString("warrantyHubUrl")
             val parsed=runCatching{java.net.URI(url)}.getOrNull()
-            if(parsed?.scheme=="https"&&parsed.host=="stage.namyranservice.ir"&&parsed.userInfo==null&&parsed.port==-1)context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,android.net.Uri.parse(url)))
+            if(parsed?.scheme=="https"&&parsed.host==BuildConfig.API_HOST&&parsed.userInfo==null&&parsed.port==-1)context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,android.net.Uri.parse(url)))
         }
         OutlinedButton(onClick={vm.changeItem("service_type","")},modifier=Modifier.fillMaxWidth()){Text("انتخاب خدمت دیگر")}
         return

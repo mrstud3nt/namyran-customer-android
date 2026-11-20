@@ -18,7 +18,7 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
     private val api = CoreApi()
     private val catalogApi = CoreApi()
     private val catalogExecutor = Executors.newSingleThreadExecutor()
-    private val catalogPrefs = application.getSharedPreferences("public_catalog_stage", 0)
+    private val catalogPrefs = application.getSharedPreferences("public_catalog_" + BuildConfig.ENVIRONMENT, 0)
     private var catalogLoading = false
     private var catalogUpdatedAt = 0L
     var verifiedEmail by mutableStateOf(""); private set
@@ -77,7 +77,7 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
     var busy by mutableStateOf(false); private set
     var error by mutableStateOf(""); private set
     var message by mutableStateOf(""); private set
-    val bundledCatalog = runCatching {
+    val bundledCatalog = if (BuildConfig.ENVIRONMENT != "stage") JSONObject() else runCatching {
         application.assets.open("stage-home-services.json").bufferedReader().use {
             JSONObject(it.readText())
         }
@@ -86,7 +86,7 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
         runCatching { JSONObject(catalogPrefs.getString("catalog", null) ?: "") }
             .getOrNull()?.takeIf { it.optJSONObject("customerMobile")?.optInt("schema") == 1 }
     ); private set
-    private val geography = runCatching {
+    private val geography = if (BuildConfig.ENVIRONMENT != "stage") JSONObject() else runCatching {
         application.assets.open("core-geography.json").bufferedReader().use { JSONObject(it.readText()) }
     }.getOrElse { JSONObject() }
     internal val customerCities: List<CustomerCity>
@@ -225,7 +225,7 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
                     resendAt = System.currentTimeMillis() + seconds * 1000
                 }
                 lastFailureCode = if (e is CoreFailure) e.code else "network_error"
-                error = when(e) { is CoreFailure -> e.message ?: "خطای Core"; else -> "ارتباط با Stage کامل نشد؛ اتصال اینترنت را بررسی و دوباره تلاش کنید." }
+                error = when(e) { is CoreFailure -> e.message ?: "خطای Core"; else -> "ارتباط با سرور کامل نشد؛ اتصال اینترنت را بررسی و دوباره تلاش کنید." }
                 busy=false
             } }
         }
@@ -245,6 +245,8 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
             val account = try {
                 api.post("otp/session", auth().put("purpose", "customer_service"))
             } catch (e: CoreFailure) {
+                // Do not spend another network timeout on a server maintenance page.
+                if (e.code.startsWith("non_json_") || e.code == "bootstrap_failed") throw e
                 if (e.code == "nsc_session_expired") {
                     return@launchTask {
                         clearSession()
@@ -252,8 +254,8 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
                     }
                 }
                 JSONObject()
-            } catch (_: java.io.IOException) {
-                JSONObject()
+            } catch (e: java.io.IOException) {
+                throw e
             }
             val responseMobile = normalizedDigits(account.optString("mobile")).trim()
                 .replace(Regex("^(?:\\+98|0098|98)(?=9[0-9]{9}$)"), "0")
@@ -601,7 +603,7 @@ class CustomerViewModel(application: Application) : AndroidViewModel(application
         val payload=JSONObject(primary.toString()).put("order_items",JSONArray(allItems).toString()).put("customer_name",name.trim()).put("problem_description",description)
             .put("address",listOf(cityTitle,area,address.trim()).filter{it.isNotBlank()}.joinToString("، "))
             .put("visit_date",date).put("visit_time",slot).put("latitude",latitude).put("longitude",longitude).put("location_accuracy",accuracy)
-            .put("terms_accepted","1").put("request_origin","android_stage").put("submission_token",UUID.randomUUID().toString()).put("owner_mobile",mobile)
+            .put("terms_accepted","1").put("request_origin",if (BuildConfig.ENVIRONMENT == "stage") "android_stage" else "android_customer").put("submission_token",UUID.randomUUID().toString()).put("owner_mobile",mobile)
         payload.put("vip_required",if(allItems.any{it.optString("installation_package")=="vip"})"1" else "0")
         payload.put("tv_services",primary.optJSONArray("tv_services")?.toString()?:"[]")
         payload.put("local_images",JSONArray(images))

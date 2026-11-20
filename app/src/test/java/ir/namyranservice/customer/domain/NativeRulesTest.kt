@@ -25,6 +25,16 @@ class NativeRulesTest {
         assertTrue(NativeRules.allowedBase("https://stage.namyranservice.ir/wp-json/"))
         listOf("http://stage.namyranservice.ir/wp-json/","https://namyranservice.ir/wp-json/","https://namyran.ir/wp-json/","https://stage.namyranservice.ir.evil.test/wp-json/","https://user@stage.namyranservice.ir/wp-json/","https://stage.namyranservice.ir:443/wp-json/","https://stage.namyranservice.ir/wp-json/?target=other","https://stage.namyranservice.ir/wp-json/#other","https://stage.namyranservice.ir/other/","bad").forEach{assertFalse(it,NativeRules.allowedBase(it))}
     }
+    @Test fun environmentsCannotCrossOrUseCloneHosts(){
+        assertTrue(NativeRules.allowedBase("https://namyranservice.ir/wp-json/", "production"))
+        assertFalse(NativeRules.allowedBase("https://stage.namyranservice.ir/wp-json/", "production"))
+        assertFalse(NativeRules.allowedBase("https://namyranservice.ir/wp-json/", "stage"))
+        listOf("stage", "production", "clone2", "").forEach { environment ->
+            assertFalse(NativeRules.allowedBase("https://clone2.namyranservice.ir/wp-json/", environment))
+            assertFalse(NativeRules.allowedBase("https://namyranservice.ir.evil.test/wp-json/", environment))
+        }
+        assertFalse(NativeRules.allowedBase("https://namyranservice.ir/wp-json/", "unknown"))
+    }
     @Test fun onlyExplicitNonceRejectionsAllowAutomaticRetry(){
         assertTrue(NativeRules.mayRefreshNonce("nsc_frontend_nonce_denied"))
         assertTrue(NativeRules.mayRefreshNonce("rest_cookie_invalid_nonce"))
