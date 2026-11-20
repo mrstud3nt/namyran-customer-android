@@ -2,17 +2,26 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+// Stage is the default. Production must be selected explicitly at build time.
+val targetEnvironment = providers.gradleProperty("namyranEnvironment").orElse("stage").get()
+require(targetEnvironment in setOf("stage", "production")) { "Unsupported Namyran environment" }
+val productionTarget = targetEnvironment == "production"
+val targetHost = if (productionTarget) "namyranservice.ir" else "stage.namyranservice.ir"
+
 android {
     namespace = "ir.namyranservice.customer"
     compileSdk = 36
     defaultConfig {
-        applicationId = "ir.namyranservice.customer.stage"
+        applicationId = if (productionTarget) "ir.namyranservice.customer" else "ir.namyranservice.customer.stage"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         minSdk = 26
         targetSdk = 35
-        versionCode = 21
-        versionName = "0.5.0-stage"
-        buildConfigField("String", "API_BASE_URL", "\"https://stage.namyranservice.ir/wp-json/\"")
+        versionCode = 24
+        versionName = "0.5.3-" + targetEnvironment
+        buildConfigField("String", "API_BASE_URL", "\"https://$targetHost/wp-json/\"")
+        buildConfigField("String", "API_HOST", "\"$targetHost\"")
+        buildConfigField("String", "ENVIRONMENT", "\"$targetEnvironment\"")
+        manifestPlaceholders["appLabel"] = if (productionTarget) "نامیران سرویس" else "نامیران سرویس آزمایشی"
         buildConfigField("boolean", "BACKEND_ENABLED", "true")
     }
     buildTypes {

@@ -56,7 +56,7 @@ class CoreApi {
     private val cookies = CookieManager(null, CookiePolicy.ACCEPT_ORIGINAL_SERVER)
     private var nonce = ""
     private var restNonce = ""
-    init { require(NativeRules.allowedBase(BuildConfig.API_BASE_URL)) }
+    init { require(NativeRules.allowedBase(BuildConfig.API_BASE_URL, BuildConfig.ENVIRONMENT)) }
 
     private fun request(path: String, method: String, content: String? = null, form: Boolean = false, images: List<JSONObject> = emptyList(), imageStore: AttachmentStore? = null): JSONObject {
         val url = if (path.startsWith("/wp-admin/")) URL(origin + path) else base.resolve(path).toURL()
@@ -64,13 +64,13 @@ class CoreApi {
         val connection = url.openConnection() as HttpURLConnection
         try {
             connection.instanceFollowRedirects = false
-            connection.connectTimeout = 15000; connection.readTimeout = 30000
+            connection.connectTimeout = 10000; connection.readTimeout = if (method == "GET" || path.endsWith("/otp/session") || path.startsWith("/wp-admin/")) 15000 else 30000
             connection.useCaches = false; connection.requestMethod = method
             connection.setRequestProperty("Accept", "application/json")
             connection.setRequestProperty("Cache-Control", "no-cache")
             connection.setRequestProperty("Origin", origin)
             connection.setRequestProperty("Referer", "$origin/service-request/")
-            connection.setRequestProperty("User-Agent", "NamyranCustomerStage/${BuildConfig.VERSION_NAME}")
+            connection.setRequestProperty("User-Agent", "NamyranCustomer/${BuildConfig.VERSION_NAME}")
             cookies.get(url.toURI(), emptyMap()).forEach { (k,v) -> if (v.isNotEmpty()) connection.setRequestProperty(k, v.joinToString("; ")) }
             if (nonce.isNotBlank()) connection.setRequestProperty("X-NSC-Public-Nonce", nonce)
             if (restNonce.isNotBlank()) connection.setRequestProperty("X-WP-Nonce", restNonce)
@@ -102,7 +102,7 @@ class CoreApi {
             } ?: byteArrayOf()
             if (bytes.size > 2_000_000) throw CoreFailure("response_too_large", "پاسخ سرور بیش از حد مجاز است.")
             val json = try { JSONObject(String(bytes, Charsets.UTF_8)) } catch (_: Exception) {
-                throw CoreFailure("non_json_$status", if (status == 403) "دسترسی Stage توسط محافظ سرور مسدود شده است." else "پاسخ معتبر از Stage دریافت نشد.")
+                throw CoreFailure("non_json_$status", if (status == 403) "دسترسی به سرور موقتاً مسدود شده است." else "سرور در دسترس نیست یا در حال نگهداری است. کمی بعد دوباره تلاش کنید.")
             }
             if (status !in 200..299) throw CoreFailure(json.optString("code", "http_$status"), json.optString("message", json.optJSONObject("data")?.optString("message") ?: "خطای ارتباط با سرور"), json.optJSONObject("data") ?: JSONObject())
             return json

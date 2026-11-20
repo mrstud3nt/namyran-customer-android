@@ -74,19 +74,21 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable private fun CustomerApp(vm:CustomerViewModel) {
+    val activity = androidx.activity.compose.LocalActivity.current
+    SideEffect {
+        activity?.let {
+            val lightSurface = if (vm.loggedIn) !vm.dark else !vm.hasSavedSession
+            androidx.core.view.WindowCompat.getInsetsController(it.window, it.window.decorView).apply {
+                isAppearanceLightStatusBars = lightSurface
+                isAppearanceLightNavigationBars = lightSurface
+            }
+        }
+    }
     BackHandler(vm.loggedIn && (vm.creating || vm.tab in listOf("tracking","receipt","partners"))) { if(!vm.busy){if(vm.creating&&vm.step>0)vm.step-- else {vm.creating=false;vm.tab="home"};vm.saveDraft()} }
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
         NamyranTheme(vm.dark) {
             if (vm.loggedIn) CustomerWorkspace(vm)
-            else {
-                var preview by rememberSaveable { mutableStateOf(false) }
-                BackHandler(preview) { preview = false }
-                if (preview) Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Home(vm, demo = true)
-                    Button(onClick = { preview = false }) { Text("بازگشت به ورود") }
-                } else CustomerLogin(vm) { preview = true }
-            }
+            else CustomerLogin(vm)
         }
     }
 }
@@ -113,7 +115,7 @@ class MainActivity : ComponentActivity() {
             if (destination == "requests") vm.loadRequests()
         }
     }){padding->
-        Column(Modifier.fillMaxSize().padding(padding).imePadding().verticalScroll(pageScroll).padding(horizontal=20.dp,vertical=16.dp),verticalArrangement=Arrangement.spacedBy(16.dp)){
+        Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding().verticalScroll(pageScroll).padding(horizontal=20.dp,vertical=16.dp),verticalArrangement=Arrangement.spacedBy(16.dp)){
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween){
                 Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
                     Box {
@@ -135,7 +137,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     Surface(shape=RoundedCornerShape(16.dp),color=Color.White){androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(R.drawable.namyran_symbol),"نشان نامیران سرویس",Modifier.size(52.dp).padding(4.dp))}
-                    Column{Text("نامیران سرویس",style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold);Text("محیط آزمایش · Stage",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
+                    Column{Text("نامیران سرویس",style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold);Text(if(BuildConfig.ENVIRONMENT == "stage") "محیط آزمایش · Stage" else "خدمات مشتریان",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
                 }
                 IconButton(onClick={vm.setDarkMode(!vm.dark)}){Icon(if(vm.dark)Icons.Outlined.LightMode else Icons.Outlined.DarkMode,"تغییر حالت نمایش")}
             }
@@ -572,10 +574,10 @@ private fun requestState(row: JSONObject): Int = when(row.optString("status")){
             Text("خدمات گارانتی",color=Color.White,style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.Bold)
             Text("پیگیری گارانتی در مرکز گارانتی نامیران",color=Color(0xFFD9E9FF),textAlign=TextAlign.Center)
         }
-        Action("ورود به مرکز گارانتی Stage",!vm.busy){
+        Action("ورود به مرکز گارانتی",!vm.busy){
             val url=config.optString("warrantyHubUrl")
             val parsed=runCatching{java.net.URI(url)}.getOrNull()
-            if(parsed?.scheme=="https"&&parsed.host=="stage.namyranservice.ir"&&parsed.userInfo==null&&parsed.port==-1)context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,android.net.Uri.parse(url)))
+            if(parsed?.scheme=="https"&&parsed.host==BuildConfig.API_HOST&&parsed.userInfo==null&&parsed.port==-1)context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,android.net.Uri.parse(url)))
         }
         OutlinedButton(onClick={vm.changeItem("service_type","")},modifier=Modifier.fillMaxWidth()){Text("انتخاب خدمت دیگر")}
         return
