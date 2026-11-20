@@ -48,6 +48,7 @@ def enter_field(name,value):
     root=dump(name)
     field=next(n for n in root.iter('node') if n.get('class')=='android.widget.EditText')
     tap(field)
+    adb('shell','input','keyevent','KEYCODE_MOVE_END',*(['KEYCODE_DEL']*16))
     adb('shell','input','text',value)
     adb('shell','input','keyevent','KEYCODE_BACK')
 
@@ -135,6 +136,8 @@ try:
     screenshot('registration-screen')
     adb('shell','input','keyevent','KEYCODE_BACK')
     enter_field('invalid-number','123')
+    root=dump('invalid-number-before-send')
+    assert any(n.get('class')=='android.widget.EditText' and n.get('text')=='123' for n in root.iter('node')), 'Refuse sending from a non-invalid phone field'
     tap_label('invalid-send','ورود با پیامک')
     root=dump('invalid-number-state')
     assert any('شماره موبایل نامعتبر' in (n.get('text') or '') for n in root.iter('node')), 'Invalid mobile state missing'

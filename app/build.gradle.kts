@@ -16,8 +16,8 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         minSdk = 26
         targetSdk = 35
-        versionCode = 23
-        versionName = "0.5.2-" + targetEnvironment
+        versionCode = 24
+        versionName = "0.5.3-" + targetEnvironment
         buildConfigField("String", "API_BASE_URL", "\"https://$targetHost/wp-json/\"")
         buildConfigField("String", "API_HOST", "\"$targetHost\"")
         buildConfigField("String", "ENVIRONMENT", "\"$targetEnvironment\"")
